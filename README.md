@@ -1,4 +1,4 @@
-<h1>TQQQ 200 이평선 & QQQ 3/161 위젯 
+<h1>TQQQ 200 이평선 & 변형 TQQQ 위젯 
 <br>for 안드로이드용</h1><br>
 <br><br>
 
