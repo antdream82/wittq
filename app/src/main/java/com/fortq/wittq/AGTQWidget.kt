@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat
 import androidx.glance.ImageProvider
 import androidx.glance.Image
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -50,48 +51,135 @@ class UpdateAcCallback : ActionCallback {
     }
 }
 
+data class WidgetState(
+    val res: AGTResult,
+    val marketData: MarketData,
+    val lastUpdate: String,
+    val savedPrice: Double
+)
+
+
 class AGTQWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(
         setOf(DpSize(300.dp, 100.dp), DpSize(412.dp, 150.dp))
     )
 
+
     @SuppressLint("RestrictedApi")
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         AGTQUpdateWorker.enqueue(context)
 
+        val prefs = context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE)
+        Log.d("WITTQ_DEBUG", "Prefs Path: " + prefs.all)
+        val SavedPrice = prefs.getFloat("user_avg_price", 0.0f).toDouble()
+        Log.d("WITTQ_DEBUG", "User_avg_price: $SavedPrice")
+        val userPos = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
+
         val resultData = withContext(Dispatchers.IO) {
             try {
-                val tqPrice = StockApiEngine.fetchPrices("TQQQ")
-                if (tqPrice.size < 200) return@withContext null
-
-                val res = AGTQStrategy.calc(tqPrice)
-                val lastUpdate =
-                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                Log.d("WITTQ_DEBUG", "Widget updated at: $lastUpdate")
-
+                val marketData = StockApiEngine.fetchMarketData("TQQQ") ?: return@withContext null
+                val history = marketData.history
+                val entryPrice = prefs.getFloat("agt_entry_price", 0f).toDouble()
+                val entryTime = prefs.getLong("agt_entry_time", 0L)
+                val entryDays = if (entryTime > 0L) ((System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0
+                val res = AGTQStrategy.calc(
+                    tqPrice = history, // [중요] 전략은 종가 기준
+                    entryPrice = entryPrice,
+                    entryDays = entryDays,
+                    avgPrice = SavedPrice,
+                    userPos = userPos
+                )
+                val currentPrice = marketData.currentPrice
                 val chartDays = 90
-                val tqMa200 = calculateMA(tqPrice, 200, chartDays)
-                val tenhigh = tqMa200.map { it * 1.05 }
-                val tmChart = drawChart(tqPrice.takeLast(chartDays), tqMa200, tenhigh,
+                val tqMa200 = calculateMA(history, 200, chartDays)
+                val tmChart = drawChart(history.takeLast(chartDays), tqMa200,
                     if (res.isbull) Color(0xFF30D158) else Color(0xFFFF453A), 400
                 )
-                Triple(res, tmChart, lastUpdate)
-            } catch (e: Exception) {
-                Log.e("WITTQ_DEBUG", "Data fetch failed: ${e.message}")
-                null
+
+                prefs.edit {
+                            if (res.agtscore == 2 && entryPrice == 0.0) {
+                                // 신규 진입 조건 달성 시: 현재가와 현재 시간 저장
+                                putFloat("agt_entry_price", res.tqqqPrice.toFloat())
+                                putLong("agt_entry_time", System.currentTimeMillis())
+                            } else if (res.isbear) {
+                                // 200일선 이탈(스탑로스) 시: 진입 정보 초기화
+                                putFloat("agt_entry_price", 0f)
+                                putLong("agt_entry_time", 0L)
+                            }
+                        }
+                Triple(res, tmChart, currentPrice)
+            } catch (e: Exception) { null }
             }
-        }
+
+
+//        val resultData = withContext(Dispatchers.IO) {
+//            try {
+//                val tqPrice = StockApiEngine.fetchPrices("TQQQ")
+//                if (tqPrice.size < 200) return@withContext null
+//
+//                val entryPrice = prefs.getFloat("agt_entry_price", 0f).toDouble()
+//                val entryTime = prefs.getLong("agt_entry_time", 0L)
+//                val entryDaysLong = if (entryTime > 0L) {
+//                    (System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)
+//                } else 0L
+//
+//                val entryDays = entryDaysLong.toInt()
+//
+//                val res = AGTQStrategy.calc(
+//                    tqPrice = tqPrice,
+//                    entryPrice = entryPrice,
+//                    entryDays = entryDays,
+//                    avgPrice = SavedPrice,
+//                    userPos = userPos
+//                )
+//
+//                prefs.edit {
+//                    if (res.agtscore == 2 && entryPrice == 0.0) {
+//                        // 신규 진입 조건 달성 시: 현재가와 현재 시간 저장
+//                        putFloat("agt_entry_price", res.tqqqPrice.toFloat())
+//                        putLong("agt_entry_time", System.currentTimeMillis())
+//                    } else if (res.isbear) {
+//                        // 200일선 이탈(스탑로스) 시: 진입 정보 초기화
+//                        putFloat("agt_entry_price", 0f)
+//                        putLong("agt_entry_time", 0L)
+//                    }
+//                }
+//
+//                val lastUpdate =
+//                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+//                Log.d("WITTQ_DEBUG", "Widget updated at: $lastUpdate")
+//
+//                val chartDays = 90
+//                val tqMa200 = calculateMA(tqPrice, 200, chartDays)
+//                val tmChart = drawChart(tqPrice.takeLast(chartDays), tqMa200,
+//                    if (res.isbull) Color(0xFF30D158) else Color(0xFFFF453A), 400
+//                )
+//                Triple(res, tmChart, lastUpdate)
+//            } catch (e: Exception) {
+//                Log.e("WITTQ_DEBUG", "Data fetch failed: ${e.message}")
+//                null
+//            }
+
 
         provideContent {
             val size = LocalSize.current
+            val lastUpdate =
+                SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
 
-            if (resultData !=null) {
-                val (res, tmChart, lastUpdate) = resultData
-                AGTQWidgetUI(res, tmChart, lastUpdate, size)
-            } else {
+            resultData?.let { (res, tmChart, currentPrice) ->
+                // 여기서 tmChart와 currentPrice를 UI 함수에 전달합니다.
+                AGTQWidgetUI(
+                    res = res,
+                    refreshTime = lastUpdate,
+                    size = size,
+                    SavedPrice = SavedPrice,
+                    tmChart = tmChart,
+                    currentPrice = currentPrice,
+                )
+            } ?: run {
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Updating...", style = TextStyle(color = ColorProvider(Color.White)))
+                        Text("updating...", style = TextStyle(color = ColorProvider(Color.White)))
                         val reftime =
                             SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                         Text(
@@ -109,9 +197,10 @@ class AGTQWidget : GlanceAppWidget() {
     private fun drawChart(
         prices: List<Double>,
         ma2Line: List<Double>,
-        highLine: List<Double>,
         color: Color,
-        widgetWidth: Int
+        widgetWidth: Int,
+        entryPrice: Double = 0.0,
+        isStopLoss: Boolean = false
     ): Bitmap {
         val width = 400
         val height = 300
@@ -123,9 +212,6 @@ class AGTQWidget : GlanceAppWidget() {
         val ma2Paint = Paint().apply {
             this.color = 0xFFFFA400.toInt(); style = Paint.Style.STROKE; strokeWidth = 2.5f; isAntiAlias = true
         }
-        val highPaint = Paint().apply {
-            this.color = android.graphics.Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.5f; isAntiAlias = true
-        }
         val fillPaint = Paint().apply {
             style = Paint.Style.FILL; isAntiAlias = true; shader = LinearGradient(
             0f, 0f, 0f,
@@ -136,11 +222,38 @@ class AGTQWidget : GlanceAppWidget() {
         ); alpha = 65
         }
 
-        val allValues = prices + ma2Line + highLine
+        val entryPaint = Paint().apply {
+            this.color = 0xFFFFFFFF.toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+            pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+            isAntiAlias = true
+        }
+
+        val stopLossPaint = Paint().apply {
+            this.color = 0xFFFF453A.toInt()
+            this.textSize = 14f
+            this.textAlign = Paint.Align.CENTER
+            this.isFakeBoldText = true
+        }
+
+        val allValues = prices + ma2Line + if (entryPrice > 0) listOf(entryPrice) else emptyList()
         val max = allValues.maxOrNull() ?: 1.0
         val min = allValues.minOrNull() ?: 0.0
         val range = (max - min).coerceAtLeast(0.1)
         fun getY(v: Double) = height - ((v - min) / range * height).toFloat()
+
+        if (entryPrice > 0) {
+            val y = getY(entryPrice)
+            canvas.drawLine(0f, y, width.toFloat(), y, entryPaint)
+
+            val textPaint = Paint().apply {
+                this.color = 0xFFFFFFFF.toInt()
+                textSize = 20f
+                isAntiAlias = true
+            }
+            canvas.drawText("\uD83D\uDE80", 0f, y + 20f, textPaint)
+        }
 
         if (ma2Line.isNotEmpty()) {
             val ma2Path = Path()
@@ -151,14 +264,6 @@ class AGTQWidget : GlanceAppWidget() {
             canvas.drawPath(ma2Path, ma2Paint)
         }
 
-        if (highLine.isNotEmpty()) {
-            val hPath = Path()
-            highLine.forEachIndexed { i, p ->
-                val x = i.toFloat() * (width.toFloat() / (highLine.size - 1))
-                if (i == 0) hPath.moveTo(x, getY(p)) else hPath.lineTo(x, getY(p))
-            }
-            canvas.drawPath(hPath, highPaint)
-        }
         if (prices.isNotEmpty()) {
             val pricePath = Path()
             val fillPath = Path()
@@ -177,6 +282,11 @@ class AGTQWidget : GlanceAppWidget() {
             ); fillPath.close()
             canvas.drawPath(fillPath, fillPaint); canvas.drawPath(pricePath, pricePaint)
         }
+
+        if (isStopLoss && prices.isNotEmpty()) {
+            canvas.drawText("❌", width / 2f, 50f, stopLossPaint)
+        }
+
         return bitmap
     }
 
@@ -184,13 +294,20 @@ class AGTQWidget : GlanceAppWidget() {
     @Composable
     fun AGTQWidgetUI(
         res: AGTResult,
-        tmChart: Bitmap?,
         refreshTime: String,
-        size: DpSize
+        size: DpSize,
+        SavedPrice: Double,
+        tmChart: Bitmap?,
+        entryPrice: Double = 0.0,
+        entryDays: Int = 0,
+        currentPrice: Double
     ) {
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         val hpadding = (30 * factor).dp
         val vpadding = (24 * factor).dp
+        val isCash = res.userPos.uppercase() == "CASH"
+        val userRate = if (isCash) "-" else "${if (res.userProfit >= 0) "+" else ""}${String.format("%.1f", res.userProfit)}%"
+
 
         Box(
             modifier = GlanceModifier
@@ -212,40 +329,61 @@ class AGTQWidget : GlanceAppWidget() {
                     }
                 }
 
-                Spacer(modifier = GlanceModifier.width((20 * factor ).dp))
+                Spacer(modifier = GlanceModifier.width((15 * factor ).dp))
 
                 // 2. 오른쪽 1/3: 정보 영역
                 Column(modifier = GlanceModifier.width((130 * factor).dp).fillMaxHeight(), verticalAlignment = Alignment.Bottom) {
                     // 시그널 (강조)
                     Text(
-                        text = "AGitQ Strategy",
+                        text = "\uD83D\uDCCA 200MA 아기티큐",
                         style = TextStyle(
                             fontSize = (16 * factor).sp,
                             fontWeight = FontWeight.Bold,
-                            color = ColorProvider(Color.Gray))
+                            color = ColorProvider(Color.LightGray))
                         )
 
                     Spacer(modifier = GlanceModifier.defaultWeight())
-                    Text(
-                        res.agtsignal,
-                        style = TextStyle(
-                            fontSize = (17 * factor).sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ColorProvider(Color(res.agtColor))
+                    Column {
+                        Text(
+                            res.agtsignal,
+                            style = TextStyle(
+                                fontSize = (18 * factor).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ColorProvider(Color(res.agtColor))
+                            )
                         )
-                    )
+                        Text(
+                            res.agtaction,
+                            style = TextStyle(
+                                fontSize = (15 * factor).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ColorProvider(Color.White)
+                            )
+                        )
+                        Text(
+                            "\uD83D\uDECE\uFE0F $${entryPrice} / ${entryDays}",
+                            style = TextStyle(
+                                fontSize = (14 * factor).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ColorProvider(Color.Gray)
+                            )
+                        )
+                    }
+
+
+                    Spacer(modifier = GlanceModifier.defaultWeight())
                     Text(
-                        res.agtaction,
-                        style = TextStyle(fontSize = (15 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color.White))
+                        "$${SavedPrice} / ${userRate}",
+                        style = TextStyle(fontSize = (14 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFF0A84FF)))
                     )
 
                     Spacer(modifier = GlanceModifier.defaultWeight())
 
                     // 수치 정보
-                    InfoRow("PRICE ", res.tqqqPrice)
-                    InfoRow("ENV HIGH ", res.envHigh)
-                    InfoRow("MA200 ", res.tq200)
-
+                    Column {
+                        InfoRow("TQ PRICE ", currentPrice)
+                        InfoRow("MA200 ", res.tq200)
+                    }
                     // 새로고침 버튼
                     Row (modifier = GlanceModifier.defaultWeight(), verticalAlignment = Alignment.Bottom) {
                         Text(

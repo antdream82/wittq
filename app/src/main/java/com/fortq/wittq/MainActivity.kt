@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
+
 @Composable
 fun PriceInputScreen() {
     val context = LocalContext.current
@@ -47,10 +49,12 @@ fun PriceInputScreen() {
 
     var avgPrice by remember { mutableStateOf(prefs.getFloat("user_avg_price", 50.0f).toString()) }
     var selectedPos by remember { mutableStateOf(prefs.getString("user_position", "TQQQ") ?: "TQQQ") }
-    val posOptions = listOf("TQQQ", "QLD", "CASH")
 
+    val lastEntryPrice = prefs.getFloat("last_entry_price", 0f)
+    val hadForceExit = prefs.getBoolean("had_force_exit", false)
+
+    val posOptions = listOf("TQQQ", "CASH")
     val isCashSelected = selectedPos == "CASH"
-
     var isUpdating by remember { mutableStateOf(false) }
 
     Column(
@@ -114,6 +118,13 @@ fun PriceInputScreen() {
                             prefs.edit(commit = true) {
                                 putFloat("user_avg_price", inputPrice)
                                 putString("user_position", selectedPos)
+
+                                if (isCashSelected) {
+                                    putFloat("last_entry_price", 0f)
+                                    putBoolean("had_force_exit", false)
+                                }
+                                val saved = prefs.getFloat("user_avg_price", 0f)
+                                Log.d("WITTQ_DEBUG", "Saved: avgPrice=$saved")
                             }
                         Log.d("WITTQ_DEBUG", "Saved: position=$selectedPos, price=$inputPrice")
                         }
@@ -128,7 +139,6 @@ fun PriceInputScreen() {
                         }
 
                         delay(200)
-
                         Toast.makeText(context, "위젯 업데이트 완료", Toast.LENGTH_SHORT).show()
 
                     } catch (e: Exception) {

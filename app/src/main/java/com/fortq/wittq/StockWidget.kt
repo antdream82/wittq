@@ -2,6 +2,7 @@ package com.fortq.wittq
 
 import android.annotation.SuppressLint
 import android.content.Context
+import androidx.core.content.edit
 import android.graphics.*
 import android.util.Log
 import androidx.compose.runtime.Composable
@@ -61,31 +62,74 @@ class StockWidget : GlanceAppWidget() {
         val userPosition = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
         val avgPrice = prefs.getFloat("user_avg_price", 50.0f).toDouble()
 
+        val lastEntryPrice = prefs.getFloat("last_entry_price", 0f).toDouble()
+        val hadForceExit = prefs.getBoolean("had_force_exit", false)
+
+        val lastRatio = prefs.getInt("last_ratio", 0)
+        var signalDesc: String = prefs.getString("last_signal_desc", "-") ?: "-"
+
         val resultdata = withContext(Dispatchers.IO) {
             try {
-                val qDeferred = async { StockApiEngine.fetchPrices("QQQ") }
-                val tDeferred = async { StockApiEngine.fetchPrices("TQQQ") }
-                val qldDeferred = async { StockApiEngine.fetchPrices("QLD") }
-                val sgovDeferred = async { StockApiEngine.fetchPrices("SGOV") }
+                val tqData = StockApiEngine.fetchMarketData("TQQQ") ?: return@withContext null
+                val qData = StockApiEngine.fetchMarketData("QQQ") ?: return@withContext null
+                val spyData = StockApiEngine.fetchMarketData("SPY") ?: return@withContext null
+                val tHis = tqData.history
+                val qHis = qData.history
+                val spyHis = spyData.history
+                val tCur = tqData.currentPrice
+                val qCur = qData.currentPrice
+                val spyCur = spyData.currentPrice
 
-                val qPrices = qDeferred.await()
-                val tPrices = tDeferred.await()
-                val qldPrices = qldDeferred.await()
-                val sgovPrices = sgovDeferred.await()
-
-                if (qPrices.isEmpty() || tPrices.isEmpty()) {
+                if (tHis.isEmpty() || qHis.isEmpty()) {
                     Log.e("WITTQ_DEBUG", "Price data is empty")
                     throw Exception("Data empty")
                 }
 
-                val result = TqqqAlgorithm.calculate(qPrices, tPrices, qldPrices, sgovPrices, userPosition, avgPrice)
+                val result = TqqqAlgorithm.calculate(
+                    qPrices = qHis,
+                    tPrices = tHis,
+                    spyPrices = spyHis,
+                    userPosition,
+                    avgPrice,
+                    lastEntryPrice,
+                    hadForceExit
+                )
+
+                val currentRatio = result.targetRatio
+
+                if (lastRatio != currentRatio) {
+                    val direction = if (currentRatio > lastRatio) "↑" else "↓"
+                    signalDesc = "${lastRatio}% > ${currentRatio}% ${direction}"
+
+                    prefs.edit {
+                        putInt("last_ratio", currentRatio)
+                        putString("last_signal_desc", signalDesc)
+                        // 강제 탈출(ESCAPE, STOP LOSS) 시 상태 저장
+                        if (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP LOSS") {
+                            putBoolean("had_force_exit", true)
+                            putFloat("last_entry_price", 0f)
+                        }
+                        // 신규 진입 시(100% 비중) 진입가 기록
+                        else if (result.targetRatio == 100 && lastEntryPrice == 0.0) {
+                            putFloat("last_entry_price", result.currentPrice.toFloat())
+                        }
+
+                        // RSI가 43 이상으로 회복되면 강제탈출 기록 해제
+                        if (result.rsi >= 43) {
+                            putBoolean("had_force_exit", false)
+                        }
+
+                        // 현재 포지션 동기화
+                        putString("user_position", result.displayPosition)
+                    }
+                }
 
                 val chartDays = 120
-                val tMa200 = calculateMA(tPrices, 200, chartDays)
-                val qMa3 = calculateMA(qPrices, 3, chartDays)
-                val qMa161 = calculateMA(qPrices, 161, chartDays)
+                val tMa200 = calculateMA(tHis, 200, chartDays)
+                val qMa3 = calculateMA(qHis, 3, chartDays)
+                val qMa161 = calculateMA(qHis, 161, chartDays)
 
-                val tChart = drawSimpleChart(tPrices.takeLast(chartDays), tMa200, if (result.isTqqqBullish) Color(0xFF30D158) else Color(0xFFFF453A), 400)
+                val tChart = drawSimpleChart(tHis.takeLast(chartDays), tMa200, if (result.isTqqqBullish) Color(0xFF30D158) else Color(0xFFFF453A), 400)
                 val qChart = drawSimpleChart(qMa3, qMa161, if (result.isQqqBullish) Color(0xFF30D158) else Color(0xFFFF453A), 400)
 
                 Triple(result, tChart, qChart)
@@ -105,7 +149,7 @@ class StockWidget : GlanceAppWidget() {
 
             if (resultdata != null) {
                 val (result, tChart, qChart) = resultdata
-                WidgetContent(result, tChart, qChart, lastUpdate, size)
+                WidgetContent(result, tChart, qChart, lastUpdate, size, signalDesc)
             } else {
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -188,7 +232,8 @@ class StockWidget : GlanceAppWidget() {
         tChart: Bitmap?,
         qChart: Bitmap?,
         updateTime: String,
-        size: DpSize
+        size: DpSize,
+        lastSignal: String
     ) {
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         val hpadding = (40 * factor).dp
@@ -196,6 +241,7 @@ class StockWidget : GlanceAppWidget() {
 
         val isCash = res.userPosition.uppercase() == "CASH"
         val grayColor = Color(0xFF8E8E93)
+        val disparity = res.disparity
 
         // [조정 2] PORTFOLIO 및 ACTION 값 글자 크기 살짝 축소
         val scoreSize = (44 * factor).sp
@@ -304,17 +350,17 @@ class StockWidget : GlanceAppWidget() {
                         ) {
                             Column {
                                 Text(
-                                    "PORTFOLIO",
+                                    "ACTION",
                                     style = TextStyle(
                                         color = ColorProvider(Color(0xFF8E8E93)),
                                         fontSize = titleSize
                                     )
                                 )
                                 Text(
-                                    res.userPosition,
+                                    lastSignal,
                                     style = TextStyle(
                                         color = ColorProvider(Color.White),
-                                        fontSize = contextSize,
+                                        fontSize = (14 * factor).sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 )
@@ -325,7 +371,7 @@ class StockWidget : GlanceAppWidget() {
                             Column {
                                 Spacer(modifier = GlanceModifier.height((16 * factor).dp))
                                 Text(
-                                    "ACTION",
+                                    "STATUS",
                                     style = TextStyle(
                                         color = ColorProvider(Color(0xFF8E8E93)),
                                         fontSize = titleSize
@@ -386,7 +432,7 @@ class StockWidget : GlanceAppWidget() {
                                     )
                                     Spacer(modifier = GlanceModifier.width((6 * factor).dp))
                                     Text(
-                                        "${res.disparity.toInt()}%",
+                                        text = String.format("%.1f%%", disparity),
                                         style = TextStyle(
                                             color = ColorProvider(Color.White),
                                             fontSize = (14 * factor).sp,

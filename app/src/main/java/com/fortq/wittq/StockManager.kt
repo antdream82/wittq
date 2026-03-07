@@ -1,5 +1,6 @@
 package com.fortq.wittq
 
+import android.util.Log
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -8,9 +9,23 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 data class YahooResponse(val chart: YahooChart)
 data class YahooChart(val result: List<YahooResultData>?)
-data class YahooResultData(val indicators: YahooIndicators)
+data class YahooResultData(
+    val meta: YahooMeta,
+    val indicators: YahooIndicators
+)
 data class YahooIndicators(val quote: List<YahooQuote>)
 data class YahooQuote(val close: List<Double?>)
+
+data class YahooMeta(
+    val regularMarketPrice: Double, // 현재가
+    val previousClose: Double
+)
+
+data class MarketData(
+    val currentPrice: Double,
+    val prevClose: Double,
+    val history: List<Double>
+)
 
 interface YahooApiService {
     @GET("v8/finance/chart/{symbol}")
@@ -36,6 +51,21 @@ object StockApiEngine {
                 ?.filterNotNull() ?: emptyList()
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+    suspend fun fetchMarketData(symbol: String): MarketData? {
+        return try {
+            val response = service.getHistory(symbol)
+            val result = response.chart.result?.firstOrNull() ?: return null
+
+            MarketData(
+                currentPrice = result.meta.regularMarketPrice,
+                prevClose = result.meta.previousClose,
+                history = result.indicators.quote.first().close.filterNotNull()
+            )
+        } catch (e: Exception) {
+            Log.e("API_ERROR", e.message.toString())
+            null
         }
     }
 }
