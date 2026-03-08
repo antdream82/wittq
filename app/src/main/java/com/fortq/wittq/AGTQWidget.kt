@@ -71,7 +71,7 @@ class AGTQWidget : GlanceAppWidget() {
 
         val prefs = context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE)
         Log.d("WITTQ_DEBUG", "Prefs Path: " + prefs.all)
-        val SavedPrice = prefs.getFloat("user_avg_price", 0.0f).toDouble()
+        val SavedPrice = ((prefs.getFloat("user_avg_price", 0.0f) * 10).toInt() / 10.0)
         Log.d("WITTQ_DEBUG", "User_avg_price: $SavedPrice")
         val userPos = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
 
@@ -79,7 +79,7 @@ class AGTQWidget : GlanceAppWidget() {
             try {
                 val marketData = StockApiEngine.fetchMarketData("TQQQ") ?: return@withContext null
                 val history = marketData.history
-                val entryPrice = prefs.getFloat("agt_entry_price", 0f).toDouble()
+                val entryPrice = ((prefs.getFloat("agt_entry_price", 0.0f) * 10).toInt() / 10.0)
                 val entryTime = prefs.getLong("agt_entry_time", 0L)
                 val entryDays = if (entryTime > 0L) ((System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0
                 val res = AGTQStrategy.calc(
@@ -110,56 +110,6 @@ class AGTQWidget : GlanceAppWidget() {
                 Triple(res, tmChart, currentPrice)
             } catch (e: Exception) { null }
             }
-
-
-//        val resultData = withContext(Dispatchers.IO) {
-//            try {
-//                val tqPrice = StockApiEngine.fetchPrices("TQQQ")
-//                if (tqPrice.size < 200) return@withContext null
-//
-//                val entryPrice = prefs.getFloat("agt_entry_price", 0f).toDouble()
-//                val entryTime = prefs.getLong("agt_entry_time", 0L)
-//                val entryDaysLong = if (entryTime > 0L) {
-//                    (System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)
-//                } else 0L
-//
-//                val entryDays = entryDaysLong.toInt()
-//
-//                val res = AGTQStrategy.calc(
-//                    tqPrice = tqPrice,
-//                    entryPrice = entryPrice,
-//                    entryDays = entryDays,
-//                    avgPrice = SavedPrice,
-//                    userPos = userPos
-//                )
-//
-//                prefs.edit {
-//                    if (res.agtscore == 2 && entryPrice == 0.0) {
-//                        // 신규 진입 조건 달성 시: 현재가와 현재 시간 저장
-//                        putFloat("agt_entry_price", res.tqqqPrice.toFloat())
-//                        putLong("agt_entry_time", System.currentTimeMillis())
-//                    } else if (res.isbear) {
-//                        // 200일선 이탈(스탑로스) 시: 진입 정보 초기화
-//                        putFloat("agt_entry_price", 0f)
-//                        putLong("agt_entry_time", 0L)
-//                    }
-//                }
-//
-//                val lastUpdate =
-//                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-//                Log.d("WITTQ_DEBUG", "Widget updated at: $lastUpdate")
-//
-//                val chartDays = 90
-//                val tqMa200 = calculateMA(tqPrice, 200, chartDays)
-//                val tmChart = drawChart(tqPrice.takeLast(chartDays), tqMa200,
-//                    if (res.isbull) Color(0xFF30D158) else Color(0xFFFF453A), 400
-//                )
-//                Triple(res, tmChart, lastUpdate)
-//            } catch (e: Exception) {
-//                Log.e("WITTQ_DEBUG", "Data fetch failed: ${e.message}")
-//                null
-//            }
-
 
         provideContent {
             val size = LocalSize.current
@@ -361,7 +311,7 @@ class AGTQWidget : GlanceAppWidget() {
                             )
                         )
                         Text(
-                            "\uD83D\uDECE\uFE0F $${entryPrice} / ${entryDays}",
+                            "\uD83D\uDECE\uFE0F $${String.format("%.2f", entryPrice)} / ${entryDays}",
                             style = TextStyle(
                                 fontSize = (14 * factor).sp,
                                 fontWeight = FontWeight.Bold,

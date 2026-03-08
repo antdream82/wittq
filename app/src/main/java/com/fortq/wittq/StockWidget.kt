@@ -60,9 +60,9 @@ class StockWidget : GlanceAppWidget() {
 
         val prefs = context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE)
         val userPosition = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
-        val avgPrice = prefs.getFloat("user_avg_price", 50.0f).toDouble()
+        val avgPrice = ((prefs.getFloat("user_avg_price", 50.0f)*10).toInt() / 10.0)
 
-        val lastEntryPrice = prefs.getFloat("last_entry_price", 0f).toDouble()
+        val lastEntryPrice = ((prefs.getFloat("last_entry_price", 0f) * 10).toInt() / 10.0)
         val hadForceExit = prefs.getBoolean("had_force_exit", false)
 
         val lastRatio = prefs.getInt("last_ratio", 0)

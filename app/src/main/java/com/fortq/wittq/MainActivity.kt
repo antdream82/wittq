@@ -108,7 +108,9 @@ fun PriceInputScreen() {
             onClick = {
                 if (isUpdating) return@Button
 
-                val inputPrice = avgPrice.toFloatOrNull() ?: 0f
+                val rawPrice = avgPrice.toFloatOrNull() ?: 0f
+                val inputPrice = (rawPrice * 10).toInt() / 10.0f
+                avgPrice = inputPrice.toString()
                 isUpdating = true
 
                 CoroutineScope(Dispatchers.Main).launch {

@@ -24,7 +24,7 @@
             </intent-filter>
         </activity>
         <receiver android:name=".StockWidgetReceiver"
-            android:exported="true" android:label="TQ200">
+            android:exported="true" android:label="ALT TQ200">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -39,6 +39,14 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/agtq_widget_info" />
+        </receiver>
+        <receiver android:name=".SnowWidgetReceiver" android:exported="true" android:label="Snow">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/snow_widget_info" />
         </receiver>
         <receiver android:name=".FGIWidgetReceiver" android:exported="true" android:label="FGI">
             <intent-filter>
