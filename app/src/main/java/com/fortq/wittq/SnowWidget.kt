@@ -287,8 +287,7 @@ class SnowWidget : GlanceAppWidget() {
         val vpadding = (24 * factor).dp
 
         val isCash = res.usPos.uppercase() == "CASH"
-        val userProfit = if (res.avgPrice > 0) (currentPrice - res.avgPrice) / res.avgPrice else 0.0
-        val userRate = if (isCash) "-" else "${if (userProfit >= 0) "+" else ""}${String.format("%.1f", userProfit)}%"
+        val userRate = if (isCash) "-" else "${if (res.usProfit >= 0) "+" else ""}${String.format("%.1f", res.usProfit)}%"
 
         val dipAvgPrice = if (res.dipPrice > 0 || res.dip2Price > 0) {
             val totalRatio = (if (res.dipPrice > 0) 20 else 0) + (if (res.dip2Price > 0) 50 else 0)
