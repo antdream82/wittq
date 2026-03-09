@@ -67,7 +67,7 @@ class SnowWidget : GlanceAppWidget() {
         val SavedPrice = ((prefs.getFloat("user_avg_price", 0.0f)*10).toInt() / 10.0)
         Log.d("WITTQ_DEBUG", "User_avg_price: $SavedPrice")
         val userPos = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
-        val entryPrice = ((prefs.getFloat("snow_entry_price", 0f) * 10).toInt() / 10.0)
+        val signalPrice = ((prefs.getFloat("snow_entry_price", 0f) * 10).toInt() / 10.0)
         val entryTime = prefs.getLong("snow_entry_time", 0L)
         val entryDays = if (entryTime > 0L) ((System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0
 
@@ -78,6 +78,16 @@ class SnowWidget : GlanceAppWidget() {
 
         val dipPrice = ((prefs.getFloat("snow_dip_price", 0f) * 10).toInt() / 10.0)
         val dip2Price = ((prefs.getFloat("snow_dip2_price", 0f) * 10).toInt() / 10.0)
+        val dipAvgPrice = if (dipPrice > 0 || dip2Price > 0) {
+            val ddipRatio = (if (dipPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
+            ((dipPrice * 20) + (dip2Price * 50)) / ddipRatio.coerceAtLeast(1)
+        } else 0.0
+        val entryPrice = if (signalPrice > 0 || dipAvgPrice > 0) {
+            val ddip = (if (dipPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
+            val totalRatio = (if (signalPrice > 0) 100 - ddip else 0) + (if (dipAvgPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
+            ((signalPrice * (100-ddip)) + (dipPrice * 20) + (dip2Price * 50)) / totalRatio.coerceAtLeast(1)
+        } else 0.0
+
 
         val resultData = withContext(Dispatchers.IO) {
             try {
@@ -87,54 +97,62 @@ class SnowWidget : GlanceAppWidget() {
                 val qHistory = qqData.history
 
                 val res = SnowStrategy.calc(
-                    tqPrice = tHistory,
-                    qPrice = qHistory,
+                    tHistory = tHistory,
+                    qHistory = qHistory,
+                    tqCurrent = tqData.currentPrice,
+                    qqCurrent = qqData.currentPrice,
                     entryPrice = entryPrice,
+                    signalPrice = signalPrice,
                     entryDays = entryDays,
                     avgPrice = SavedPrice,
                     usPos = userPos,
                     cooldownDays = cooldownDays,
                     slPrice = slPrice,
                     dipPrice = dipPrice,
-                    dip2Price = dip2Price
+                    dip2Price = dip2Price,
+                    dipAvgPrice = dipAvgPrice,
+
                 )
-                val tqCurrentPrice = tqData.currentPrice
+                val tqCurrent = tqData.currentPrice
+                val qqCurrent = qqData.currentPrice
                 val chartDays = 90
-                val tqMa220 = calculateMA(tHistory, 220, chartDays)
-                val tqMa5 = calculateMA(tHistory, 5, chartDays)
+                val tqMa220 = calculateMA((tHistory+tqCurrent), 220, chartDays)
+                val tqMa5 = calculateMA((tHistory+tqCurrent), 5, chartDays)
+
 
                 val tmChart = drawChart(
-                    prices = tHistory.takeLast(chartDays),
+                    prices = (tHistory+tqCurrent).takeLast(chartDays),
                     ma5Line = tqMa5,
                     ma220Line = tqMa220,
                     color = Color(res.snowColor),
                     entryPrice = entryPrice,
                     dipPrice = dipPrice,
                     dip2Price = dip2Price,
-                    isStopLoss = res.isbear
+                    isStopLoss = res.isbear,
+                    slPrice = slPrice
                 )
 
                 prefs.edit {
-                            if (res.isgc) {
-                                if (entryPrice == 0.0) {
-                                    putFloat("snow_entry_price", tqCurrentPrice.toFloat())
+                            if (res.isgc && cooldownDays == 0) {
+                                if (signalPrice == 0.0) {
+                                    putFloat("snow_entry_price", tHistory.last().toFloat())
                                     putLong("snow_entry_time", System.currentTimeMillis())
                                 }
-                            } else if (res.snowscore == 1 && res.buyRatio == 50 && dip2Price == 0.0) {
-                                putFloat("snow_dip2_price", tqCurrentPrice.toFloat())
+                            } else if (res.dip2Price > 0) {
+                                putFloat("snow_dip2_price", tHistory.last().toFloat())
                                 putLong("snow_dip2_time", System.currentTimeMillis())
-                            } else if (res.snowscore == 1 && res.buyRatio in 19..31 && dipPrice == 0.0){
-                                putFloat("snow_dip_price", tqCurrentPrice.toFloat())
+                            } else if (res.dipPrice > 0){
+                                putFloat("snow_dip_price", tHistory.last().toFloat())
                                 putLong("snow_dip_time", System.currentTimeMillis())
-                            } else if (res.isbear) {
+                            } else if (res.slPrice > 0) {
                                 // 200일선 이탈(스탑로스) 시: 진입 정보 초기화
                                 putFloat("snow_entry_price", 0f)
                                 putLong("snow_entry_time", 0L)
-                                putFloat("snow_stop_price", tqCurrentPrice.toFloat())
+                                putFloat("snow_stop_price", tHistory.last().toFloat())
                                 putLong("snow_stop_time", System.currentTimeMillis())
                             }
                         }
-                Triple(res, tmChart, tqCurrentPrice)
+                Triple(res, tmChart, tqCurrent)
             } catch (e: Exception) { null }
             }
 
@@ -142,9 +160,9 @@ class SnowWidget : GlanceAppWidget() {
             val size = LocalSize.current
             val lastUpdate = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
 
-            resultData?.let { (res, tmChart, tqCurrentPrice) ->
+            resultData?.let { (res, tmChart, tqCurrent) ->
                 // 여기서 tmChart와 currentPrice를 UI 함수에 전달합니다.
-                SnowWidgetUI(res, lastUpdate, size, SavedPrice, tmChart, entryPrice, entryDays, tqCurrentPrice)
+                SnowWidgetUI(res, lastUpdate, size, SavedPrice, tmChart, entryPrice, entryDays, tqCurrent)
             } ?: run {
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -168,10 +186,12 @@ class SnowWidget : GlanceAppWidget() {
         ma5Line: List<Double>,
         ma220Line: List<Double>,
         color: Color,
-        entryPrice: Double = 0.0,
+        entryPrice : Double = 0.0,
         dipPrice: Double = 0.0,
         dip2Price: Double = 0.0,
-        isStopLoss: Boolean = false
+        dipAvgPrice: Double = 0.0,
+        isStopLoss: Boolean = false,
+        slPrice: Double = 0.0
     ): Bitmap {
         val width = 400
         val height = 200
@@ -203,7 +223,9 @@ class SnowWidget : GlanceAppWidget() {
         val allValues = prices + ma220Line +ma5Line + listOfNotNull(
             if (entryPrice > 0) entryPrice else null,
             if (dipPrice > 0) dipPrice else null,
-            if (dip2Price > 0) dip2Price else null
+            if (dip2Price > 0) dip2Price else null,
+            if (dipPrice > 0 && dip2Price > 0) dipAvgPrice else null,
+            if (slPrice > 0) slPrice else null
         )
         val max = allValues.maxOrNull() ?: 1.0
         val min = allValues.minOrNull() ?: 0.0
@@ -225,8 +247,14 @@ class SnowWidget : GlanceAppWidget() {
             canvas.drawLine(0f, y, width.toFloat(), y, linePaint)
             canvas.drawText("❄2\uFE0F⃣", 20f, y - 5f, iconPaint) // 겹치지 않게 옆으로 이동
         }
+        if (dipPrice > 0 && dip2Price > 0) {
+            val y = getY(dipAvgPrice)
+            canvas.drawLine(0f, y, width.toFloat(), y, linePaint)
+            canvas.drawText("❄\uFE0F⃣", 20f, y - 5f, iconPaint) // 겹치지 않게 옆으로 이동
+        }
+
         if (isStopLoss) {
-            val y = getY(prices.takeLast(0).maxOrNull() ?: 0.0)
+            val y = getY(slPrice)
             canvas.drawLine(0f, y, width.toFloat(), y, linePaint)
             canvas.drawText("\uD83D\uDEA8", 0f, y - 5f, iconPaint)
         }
@@ -280,7 +308,7 @@ class SnowWidget : GlanceAppWidget() {
         tmChart: Bitmap?,
         entryPrice: Double,
         entryDays: Int,
-        currentPrice: Double
+        currentPrice: Double,
     ) {
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         val hpadding = (30 * factor).dp
@@ -293,6 +321,13 @@ class SnowWidget : GlanceAppWidget() {
             val totalRatio = (if (res.dipPrice > 0) 20 else 0) + (if (res.dip2Price > 0) 50 else 0)
             ((res.dipPrice * 20) + (res.dip2Price * 50)) / totalRatio.coerceAtLeast(1)
         } else 0.0
+
+        val dif5ma = (res.tqPrice.takeLast(4)+currentPrice).average()
+        val dif220ma = (res.tqPrice.takeLast(219)+currentPrice).average()
+        val diff220 = if (dif5ma > 0) (dif5ma - dif220ma) / dif220ma * 100 else 0.0
+        val q52w = (res.qqPrice.takeLast(251)+currentPrice).maxOrNull() ?: 0.0
+        val diffq = if (q52w > 0) (res.qqCurrent - q52w) / q52w * 100 else 0.0
+        val c220ma = (res.tqPrice.takeLast(219)+currentPrice).average()
 
         val activeText = when {
             entryPrice > 0 -> {
@@ -333,7 +368,7 @@ class SnowWidget : GlanceAppWidget() {
                         )
                         Spacer(modifier = GlanceModifier.defaultWeight())
                         Text(
-                            text = "220MA: ${String.format("%.2f", res.tq220)}",
+                            text = "220MA: ${String.format("%.2f", c220ma)}",
                             style = TextStyle(fontSize = (11 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFFFFA400))) // MA 오렌지 색상 매칭
                         )
                     }
@@ -398,8 +433,8 @@ class SnowWidget : GlanceAppWidget() {
 
                     // 수치 정보
                     Column {
-                        InfoRow("DISP ", "${String.format("%.1f", res.diff220ma)}%")
-                        InfoRow("52W ", "${String.format("%.1f", res.diffqqq)}%")
+                        InfoRow("DISP ", "${String.format("%.1f", diff220)}%")
+                        InfoRow("52W ", "${String.format("%.1f", diffq)}%")
                         InfoRow("RSI", String.format("%.1f", res.tqRSI))
                     }
                     // 새로고침 버튼

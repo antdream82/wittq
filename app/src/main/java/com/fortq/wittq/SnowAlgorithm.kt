@@ -5,12 +5,13 @@ import kotlin.math.sqrt
 import android.content.Context
 import android.content.SharedPreferences
 
-// AGTQ Data
 data class SnowResult(
     val tq220: Double,
     val snowscore: Int,
-    val tqPrice: Double,
-    val qPrice: Double,
+    val tqPrice: List<Double>,
+    val qqPrice: List<Double>,
+    val tqCurrent: Double,
+    val qqCurrent: Double,
     val qqq52WHigh: Double,
     val diff220ma: Double,
     val diffqqq: Double,
@@ -30,13 +31,18 @@ data class SnowResult(
     val usProfit : Double,
     val usPos: String,
     val dipPrice: Double,
-    val dip2Price: Double
+    val dip2Price: Double,
+    val dipAvgPrice: Double,
+    val entryPrice: Double,
+    val slPrice : Double
 )
 
 object SnowStrategy {
     fun calc(
-        tqPrice: List<Double>,
-        qPrice: List<Double>,
+        tHistory: List<Double>,
+        qHistory: List<Double>,
+        tqCurrent: Double,
+        qqCurrent: Double,
         entryPrice: Double,
         entryDays: Int,
         cooldownDays: Int,
@@ -44,7 +50,9 @@ object SnowStrategy {
         usPos: String,
         slPrice: Double,
         dipPrice: Double,
-        dip2Price: Double
+        dip2Price: Double,
+        dipAvgPrice: Double,
+        signalPrice: Double
     ): SnowResult {
         val bullColor = 0xFF30D158
         val bearColor = 0xFFFF453A
@@ -52,40 +60,56 @@ object SnowStrategy {
         val purpleColor = 0xFFBF5AF2
         val blueColor = 0xFF0A84FF
 
-        val tqCurrent = tqPrice.lastOrNull() ?: 0.0
-        val qCurrent = qPrice.lastOrNull() ?: 0.0
-        val tq5 = tqPrice.takeLast(5).average()
-        val tq220 = tqPrice.takeLast(220).average()
-        val tqRSI = calcRSI(tqPrice, 14)
-        val tq5prev = tqPrice.takeLast(6).dropLast(1).average()
-        val tq220prev = tqPrice.takeLast(221).dropLast(1).average()
+        val lastclose = tHistory.last()
+        val qlast = qHistory.last()
+        val tq5 = tHistory.takeLast(5).average()
+        val tq220 = tHistory.takeLast(220).average()
+        val tqRSI = calcRSI(tHistory, 14)
+        val tq5prev = tHistory.takeLast(6).dropLast(1).average()
+        val tq220prev = tHistory.takeLast(221).dropLast(1).average()
 
-        val qqq52WHigh = qPrice.takeLast(252).maxOrNull() ?: 0.0
+        val qqq52WHigh = qHistory.takeLast(252).maxOrNull() ?: 0.0
         val diff220ma = if (tq220 > 0) (tq5 - tq220) / tq220 * 100 else 0.0
-        val diffqqq = if (qqq52WHigh > 0) (qCurrent - qqq52WHigh) / qqq52WHigh * 100 else 0.0
+        val diffqqq = if (qqq52WHigh > 0) (qlast - qqq52WHigh) / qqq52WHigh * 100 else 0.0
 
         val isCooldown = cooldownDays > 0
 
         val isgc = (tq5 > tq220) && (tq5prev <= tq220prev) && !isCooldown
         val isbull = (tq5 > tq220) && !isCooldown
-        val isbear = (tq5 < tq220)
-        val profitRate = if (entryPrice > 0) (tqCurrent - entryPrice) / entryPrice else 0.0
+        val isbear = (tq5 < tq220) && (tq5prev > tq220prev)
+        val profitRate = if (entryPrice > 0) (lastclose - entryPrice) / entryPrice else 0.0
+        val dipRate = if (dipAvgPrice > 0) (lastclose - dipAvgPrice) / dipAvgPrice else 0.0
+        val slPrice = if (isbear) lastclose else 0.0
+        val signalPrice = if (isgc) lastclose else 0.0
+        val dipPrice = if (diffqqq == -10.0) lastclose else 0.0
+        val dip2price = if (diffqqq == -22.0) lastclose else 0.0
+        val dipAvgPrice = if (dipPrice > 0 || dip2Price > 0) {
+            val totalRatio = (if (dipPrice > 0) 20 else 0) + (if (dip2price > 0) 50 else 0)
+            ((dipPrice * 20) + (dip2price * 50)) / totalRatio.coerceAtLeast(1)
+        } else 0.0
 
-        val isDip = diffqqq <= -10 && !isCooldown
+
+        val isDip = diffqqq <= -10
 
         var actionNote = ""
         var actNote = ""
 
         var buyRatio = when {
             isCooldown -> 0
+            dipAvgPrice > 0 && dipRate >= 3.50 -> 15
+            dipAvgPrice > 0 && dipRate >= 0.68 -> 35
+            dipAvgPrice > 0 && dipRate >= 0.15 -> 50
             diffqqq <= -40 -> 0 /* STOP BUY */
-            diffqqq <= -22.0 -> 50
+            diffqqq <= -22 -> 50
             diffqqq <= -10 -> if (tqRSI <= 35) 30 else 20
+            isgc && !isCooldown -> 100
             else -> 0
         }
 
+
         var tqRatio = if (entryPrice > 0) {
             when {
+                isbear -> 0
                 profitRate >= 3.50 -> 15
                 profitRate >= 0.68 -> 35
                 profitRate >= 0.15 -> 50
@@ -94,14 +118,21 @@ object SnowStrategy {
         } else { buyRatio }
 
         if (isbear && entryPrice > 0) tqRatio = 0
-        else if (isbull || isgc) tqRatio = 100
+        else if (isgc) tqRatio = 100
 
-        if (tqRatio in 1..<100) actionNote = "(분할매도)"
+        if (tqRatio in 1..<100) actionNote = "(매도)"
+        else if (tqRatio == 100) actionNote = "(매수)"
+
         if (buyRatio in 19..<31) actNote = "DIP1"
         else if (buyRatio == 50) actNote = "DIP2"
+        else if (dipRate >= 3.50) actNote = "(매도)"
+        else if (dipRate >= 0.68) actNote = "(매도)"
+        else if (dipRate >= 0.15) actNote = "(매도)"
+
 
         var snowscore = when {
-            isgc || isbull -> 3
+            isbull && tqRatio == 0 && profitRate >= 3.50 -> 4
+            isgc || isbull && entryPrice > 0 -> 3
             tqRatio in 1..99 -> 2
             buyRatio in 1..99 -> 1
             else -> 0
@@ -110,10 +141,11 @@ object SnowStrategy {
         val (snowsignal, snowaction, snowColor) = when {
             //MA200 이탈 시 약세
             isbear -> { Triple("전량매도\uD83D\uDE07", "탈출\uD83D\uDD25", bearColor) }
-            isgc || isbull || entryPrice > 0 -> { Triple("전량매수\uD83D\uDEEB", "TQ ${tqRatio}%", bullColor) }
-            snowscore == 2 -> { Triple("Active", "TQ ${tqRatio}% $actionNote", purpleColor) }
+            snowscore == 4 -> { Triple("졸업", "신호대기", grayColor)}
+            snowscore == 3 -> { Triple("매수\uD83D\uDEEB", "TQ ${tqRatio}% $actionNote", bullColor) }
+            snowscore == 2 -> { Triple("분할", "TQ ${tqRatio}% $actionNote", purpleColor) }
             snowscore == 1 -> { Triple("❄\uFE0F 눈덩이", "TQ ${buyRatio}% $actNote", blueColor) }
-            else -> { Triple("대기⏳", "대기⌛", grayColor)}
+            else -> { Triple("대기⏳", "-", grayColor)}
         }
 
         val usProfit = if (avgPrice > 0) ((tqCurrent - avgPrice) / avgPrice) * 100 else 0.0
@@ -121,8 +153,10 @@ object SnowStrategy {
         return SnowResult(
             tq220 = tq220,
             snowscore = snowscore,
-            tqPrice = tqCurrent,
-            qPrice = qCurrent,
+            tqPrice = tHistory,
+            qqPrice = qHistory,
+            tqCurrent = tqCurrent,
+            qqCurrent = qqCurrent,
             qqq52WHigh = qqq52WHigh,
             diff220ma = diff220ma,
             diffqqq = diffqqq,
@@ -135,14 +169,17 @@ object SnowStrategy {
             isbull = isbull,
             isbear = isbear,
             isDip = isDip,
-            tqRatio = if (isbear) 0 else tqRatio,
+            tqRatio = tqRatio,
             buyRatio = buyRatio,
             avgPrice = avgPrice,
             cooldownDays = cooldownDays,
             usProfit = usProfit,
             usPos = usPos,
             dipPrice = dipPrice,
-            dip2Price = dip2Price
+            dip2Price = dip2Price,
+            dipAvgPrice = dipAvgPrice,
+            entryPrice = entryPrice,
+            slPrice = slPrice
         )
     }
 
