@@ -91,8 +91,8 @@ class AGTQWidget : GlanceAppWidget() {
                 )
                 val currentPrice = marketData.currentPrice
                 val chartDays = 90
-                val tqMa200 = calculateMA(history, 200, chartDays)
-                val tmChart = drawChart(history.takeLast(chartDays), tqMa200,
+                val tqMa200 = calculateMA(history+currentPrice, 200, chartDays)
+                val tmChart = drawChart((history+currentPrice).takeLast(chartDays), tqMa200,
                     if (res.isbull) Color(0xFF30D158) else Color(0xFFFF453A), 400
                 )
 
@@ -124,7 +124,7 @@ class AGTQWidget : GlanceAppWidget() {
                     size = size,
                     SavedPrice = SavedPrice,
                     tmChart = tmChart,
-                    currentPrice = currentPrice,
+                    currentPrice = currentPrice
                 )
             } ?: run {
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -256,7 +256,10 @@ class AGTQWidget : GlanceAppWidget() {
         val hpadding = (30 * factor).dp
         val vpadding = (24 * factor).dp
         val isCash = res.userPos.uppercase() == "CASH"
-        val userRate = if (isCash) "-" else "${if (res.userProfit >= 0) "+" else ""}${String.format("%.1f", res.userProfit)}%"
+        val usProfit = if (SavedPrice > 0) ((currentPrice - SavedPrice) / SavedPrice) * 100 else 0.0
+        val userRate = if (isCash) "-" else "${if (usProfit >= 0) "+" else ""}${String.format("%.1f", usProfit)}%"
+        val dis200Ma = (res.tqClose+currentPrice).takeLast(200).average()
+
 
 
         Box(
@@ -285,9 +288,9 @@ class AGTQWidget : GlanceAppWidget() {
                 Column(modifier = GlanceModifier.width((130 * factor).dp).fillMaxHeight(), verticalAlignment = Alignment.Bottom) {
                     // 시그널 (강조)
                     Text(
-                        text = "\uD83D\uDCCA 200MA 아기티큐",
+                        text = "\uD83D\uDCCA 200MA AGiTQ",
                         style = TextStyle(
-                            fontSize = (16 * factor).sp,
+                            fontSize = (15 * factor).sp,
                             fontWeight = FontWeight.Bold,
                             color = ColorProvider(Color.LightGray))
                         )
@@ -297,7 +300,7 @@ class AGTQWidget : GlanceAppWidget() {
                         Text(
                             res.agtsignal,
                             style = TextStyle(
-                                fontSize = (18 * factor).sp,
+                                fontSize = (17 * factor).sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ColorProvider(Color(res.agtColor))
                             )
@@ -305,7 +308,7 @@ class AGTQWidget : GlanceAppWidget() {
                         Text(
                             res.agtaction,
                             style = TextStyle(
-                                fontSize = (15 * factor).sp,
+                                fontSize = (14 * factor).sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ColorProvider(Color.White)
                             )
@@ -313,7 +316,7 @@ class AGTQWidget : GlanceAppWidget() {
                         Text(
                             "\uD83D\uDECE\uFE0F $${String.format("%.2f", entryPrice)} / ${entryDays}",
                             style = TextStyle(
-                                fontSize = (14 * factor).sp,
+                                fontSize = (13 * factor).sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ColorProvider(Color.Gray)
                             )
@@ -324,7 +327,7 @@ class AGTQWidget : GlanceAppWidget() {
                     Spacer(modifier = GlanceModifier.defaultWeight())
                     Text(
                         "$${SavedPrice} / ${userRate}",
-                        style = TextStyle(fontSize = (14 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFF0A84FF)))
+                        style = TextStyle(fontSize = (13 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color(0xFF0A84FF)))
                     )
 
                     Spacer(modifier = GlanceModifier.defaultWeight())
@@ -332,7 +335,7 @@ class AGTQWidget : GlanceAppWidget() {
                     // 수치 정보
                     Column {
                         InfoRow("TQ PRICE ", currentPrice)
-                        InfoRow("MA200 ", res.tq200)
+                        InfoRow("MA200 ", dis200Ma)
                     }
                     // 새로고침 버튼
                     Row (modifier = GlanceModifier.defaultWeight(), verticalAlignment = Alignment.Bottom) {
@@ -351,7 +354,7 @@ class AGTQWidget : GlanceAppWidget() {
                             Image(
                                 provider = ImageProvider(R.drawable.ic_refresh),
                                 contentDescription = "Refresh",
-                                modifier = GlanceModifier.size((16 * factor).dp)
+                                modifier = GlanceModifier.size((15 * factor).dp)
                                     .clickable(actionRunCallback<UpdateAcCallback>())
                             )
                         }
@@ -367,7 +370,7 @@ class AGTQWidget : GlanceAppWidget() {
         val size = LocalSize.current
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         Row(modifier = GlanceModifier.fillMaxWidth()) {
-            Text(label, style = TextStyle(fontSize = (14 * factor).sp, color = ColorProvider(Color.Gray)))
+            Text(label, style = TextStyle(fontSize = (13 * factor).sp, color = ColorProvider(Color.Gray)))
             Spacer(modifier = GlanceModifier.defaultWeight())
             Text(String.format("%.2f", value), style = TextStyle(fontSize = (14 * factor).sp, color = ColorProvider(Color.White)))
         }

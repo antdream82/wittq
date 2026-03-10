@@ -382,7 +382,7 @@ class SnowWidget : GlanceAppWidget() {
                     Text(
                         text = "☃\uFE0FSnowball TQQQ",
                         style = TextStyle(
-                            fontSize = (16 * factor).sp,
+                            fontSize = (15 * factor).sp,
                             fontWeight = FontWeight.Bold,
                             color = ColorProvider(Color.LightGray))
                         )
@@ -393,7 +393,7 @@ class SnowWidget : GlanceAppWidget() {
                         Text(
                             res.snowsignal,
                             style = TextStyle(
-                                fontSize = (18 * factor).sp,
+                                fontSize = (17 * factor).sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ColorProvider(Color(res.snowColor))
                             )
@@ -401,7 +401,7 @@ class SnowWidget : GlanceAppWidget() {
                         Text(
                             actionStr,
                             style = TextStyle(
-                                fontSize = (14 * factor).sp,
+                                fontSize = (13 * factor).sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ColorProvider(Color.White)
                             )
@@ -409,7 +409,7 @@ class SnowWidget : GlanceAppWidget() {
                         if (activeText.isNotEmpty()) {
                             Text(
                                 text = "\uD83D\uDECE\uFE0F $activeText",
-                                style = TextStyle(fontSize = (12 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color(res.snowColor)))
+                                style = TextStyle(fontSize = (11 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color(res.snowColor)))
                             )
                         }
                         Text(
@@ -426,7 +426,7 @@ class SnowWidget : GlanceAppWidget() {
                     Spacer(modifier = GlanceModifier.defaultWeight())
                     Text(
                         text = "$$SavedPrice / $userRate",
-                        style = TextStyle(fontSize = (13 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color.LightGray))
+                        style = TextStyle(fontSize = (12 * factor).sp, fontWeight = FontWeight.Bold, color = ColorProvider(Color.LightGray))
                     )
 
                     Spacer(modifier = GlanceModifier.defaultWeight())
@@ -443,7 +443,7 @@ class SnowWidget : GlanceAppWidget() {
                             "Updated $refreshTime",
                             style = TextStyle(
                                 color = ColorProvider(Color(0xFF8E8E93)),
-                                fontSize = (11 * factor).sp
+                                fontSize = (10 * factor).sp
                             )
                         )
                         Spacer(modifier = GlanceModifier.width(8.dp))
@@ -454,7 +454,7 @@ class SnowWidget : GlanceAppWidget() {
                             Image(
                                 provider = ImageProvider(R.drawable.ic_refresh),
                                 contentDescription = "Refresh",
-                                modifier = GlanceModifier.size((16 * factor).dp)
+                                modifier = GlanceModifier.size((14 * factor).dp)
                                     .clickable(actionRunCallback<UpdateSnowCallback>())
                             )
                         }
@@ -470,9 +470,9 @@ class SnowWidget : GlanceAppWidget() {
         val size = LocalSize.current
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         Row(modifier = GlanceModifier.fillMaxWidth()) {
-            Text(label, style = TextStyle(fontSize = (12 * factor).sp, color = ColorProvider(Color.Gray)))
+            Text(label, style = TextStyle(fontSize = (11 * factor).sp, color = ColorProvider(Color.Gray)))
             Spacer(modifier = GlanceModifier.defaultWeight())
-            Text(valueStr, style = TextStyle(fontSize = (12 * factor).sp, color = ColorProvider(Color.White)))
+            Text(valueStr, style = TextStyle(fontSize = (11 * factor).sp, color = ColorProvider(Color.White)))
         }
     }
     private fun calculateMA(prices: List<Double>, period: Int, count: Int): List<Double> {

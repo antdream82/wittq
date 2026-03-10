@@ -36,6 +36,7 @@ data class LinRegResult(
 data class AGTResult(
     val tq200: Double,
     val agtscore: Int,
+    val tqClose: List<Double>,
     val tqqqPrice: Double,
     val tqqqPrevClose: Double,
     val stopLoss: Double,
@@ -60,11 +61,16 @@ object AGTQStrategy {
         val blueColor = 0xFF0A84FF
 
         val tqCurrent = tqPrice.lastOrNull() ?: 0.0
-        val tqPrev = if (tqPrice.size >= 2) tqPrice[tqPrice.size - 2] else tqCurrent
         val tq200 = tqPrice.takeLast(200).average()
+        val tqPrev = if (tqPrice.size >= 2) tqPrice[tqPrice.size - 2] else tqCurrent
+        val tq200prev = tqPrice.takeLast(201).dropLast(1).average()
+        val tq2Prev = if (tqPrice.size >= 3) tqPrice[tqPrice.size - 3] else tqCurrent
+        val tq200prev2 = tqPrice.takeLast(202).dropLast(2).average()
+        val isgc = tqPrice[tqPrice.size - 4] < tqPrice.takeLast(203).dropLast(3).average()
+
 
         var agtscore = 0
-        if (tqPrev >= tq200 && tqCurrent >= tq200) {
+        if (isgc && tqCurrent >= tq200 && tqPrev >= tq200prev && tq2Prev >= tq200prev2) {
             agtscore = 2
         } else if (tqCurrent >= tq200) {
             agtscore = 1
@@ -94,7 +100,7 @@ object AGTQStrategy {
                 profitRate >= 0.10 -> 90
                 else -> 100
             }
-            if (tqqqRatio < 100) actionNote = "(익절실행)"
+            if (tqqqRatio < 100) actionNote = "(분할)"
         }
 
 
@@ -119,6 +125,7 @@ object AGTQStrategy {
         return AGTResult(
             tq200 = tq200,
             agtscore = agtscore,
+            tqClose = tqPrice,
             tqqqPrice = tqCurrent,
             tqqqPrevClose = tqPrev,
             stopLoss = tq200,
