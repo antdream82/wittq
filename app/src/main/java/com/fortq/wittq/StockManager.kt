@@ -97,7 +97,8 @@ object StockApiEngine {
             if (!key.startsWith(CACHE_PREFIX) || value !is String) return@forEach
             val cached = runCatching { gson.fromJson(value, CachedMarketData::class.java) }.getOrNull()
             val invalid = cached == null ||
-                cached.data.timestamps.isEmpty() ||
+                cached.data.safeTimestamps().isEmpty() ||
+                cached.data.safeHistory().isEmpty() ||
                 now - cached.savedAtMs > CACHE_STALE_MS
             if (invalid) {
                 prefs(context).edit {
@@ -125,7 +126,7 @@ object StockApiEngine {
         val now = System.currentTimeMillis()
         pruneCachedMarketData(context, now)
         val cached = readCachedMarketData(context, symbol)
-        val cachedHasTimestamps = cached?.data?.timestamps?.isNotEmpty() == true
+        val cachedHasTimestamps = cached?.data?.safeTimestamps()?.isNotEmpty() == true
         if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
             setLastError(context, null)
             Log.d("API_CACHE", "Cache hit for $symbol")
@@ -139,8 +140,9 @@ object StockApiEngine {
                 setLastError(context, "Yahoo $symbol fetch failed: empty response")
                 return null
             }
-            val closes = result.indicators.quote.firstOrNull()?.close.orEmpty()
-            val pairedHistory = result.timestamp.zip(closes).mapNotNull { (ts, close) ->
+            val closes = result.safeCloses()
+            val timestamps = result.safeTimestamps()
+            val pairedHistory = timestamps.zip(closes).mapNotNull { (ts, close) ->
                 close?.let { (ts * 1000L) to it }
             }
             val data = MarketData(

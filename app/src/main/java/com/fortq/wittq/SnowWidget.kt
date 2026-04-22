@@ -108,14 +108,14 @@ class SnowWidget : GlanceAppWidget() {
             try {
                 val tqData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
                 val qqData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
-                val tHistory = tqData.history
-                val qHistory = qqData.history
+                val tHistory = tqData.safeHistory()
+                val qHistory = qqData.safeHistory()
                 val recoveredState = if (persistedSignalPrice <= 0.0) {
                     recoverSnowState(
                         tHistory = tHistory,
-                        tTimes = tqData.timestamps,
+                        tTimes = tqData.safeTimestamps(),
                         qHistory = qHistory,
-                        qTimes = qqData.timestamps
+                        qTimes = qqData.safeTimestamps()
                     )
                 } else {
                     null

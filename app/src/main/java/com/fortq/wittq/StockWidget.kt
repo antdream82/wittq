@@ -80,9 +80,9 @@ class StockWidget : GlanceAppWidget() {
                 val tqData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
                 val qData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
                 val spyData = StockApiEngine.fetchMarketData(context, "SPY") ?: return@withContext null
-                val tHis = tqData.history
-                val qHis = qData.history
-                val spyHis = spyData.history
+                val tHis = tqData.safeHistory()
+                val qHis = qData.safeHistory()
+                val spyHis = spyData.safeHistory()
                 val tCur = tqData.currentPrice
                 val qCur = qData.currentPrice
                 val spyCur = spyData.currentPrice
@@ -645,12 +645,19 @@ class StockWidget : GlanceAppWidget() {
         tData: MarketData,
         spyData: MarketData
     ): HistoricalSeries? {
-        if (qData.history.isEmpty() || tData.history.isEmpty() || spyData.history.isEmpty()) return null
-        if (qData.timestamps.isEmpty() || tData.timestamps.isEmpty() || spyData.timestamps.isEmpty()) return null
+        val qHistory = qData.safeHistory()
+        val tHistory = tData.safeHistory()
+        val spyHistory = spyData.safeHistory()
+        val qTimestamps = qData.safeTimestamps()
+        val tTimestamps = tData.safeTimestamps()
+        val spyTimestamps = spyData.safeTimestamps()
 
-        val qMap = qData.timestamps.zip(qData.history).toMap()
-        val tMap = tData.timestamps.zip(tData.history).toMap()
-        val spyMap = spyData.timestamps.zip(spyData.history).toMap()
+        if (qHistory.isEmpty() || tHistory.isEmpty() || spyHistory.isEmpty()) return null
+        if (qTimestamps.isEmpty() || tTimestamps.isEmpty() || spyTimestamps.isEmpty()) return null
+
+        val qMap = qTimestamps.zip(qHistory).toMap()
+        val tMap = tTimestamps.zip(tHistory).toMap()
+        val spyMap = spyTimestamps.zip(spyHistory).toMap()
 
         val commonTimes = qMap.keys
             .intersect(tMap.keys)

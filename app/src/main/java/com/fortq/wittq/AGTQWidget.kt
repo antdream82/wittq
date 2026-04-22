@@ -83,11 +83,11 @@ class AGTQWidget : GlanceAppWidget() {
         val resultData = withContext(Dispatchers.IO) {
             try {
                 val marketData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
-                val history = marketData.history
+                val history = marketData.safeHistory()
                 val persistedEntryPrice = ((prefs.getFloat("agt_entry_price", 0.0f) * 10).toInt() / 10.0)
                 val persistedEntryTime = prefs.getLong("agt_entry_time", 0L)
                 val recoveredState = if (persistedEntryPrice <= 0.0) {
-                    recoverAGTState(history, marketData.timestamps, SavedPrice, userPos)
+                    recoverAGTState(history, marketData.safeTimestamps(), SavedPrice, userPos)
                 } else {
                     null
                 }
