@@ -76,6 +76,7 @@ class StockWidget : GlanceAppWidget() {
 
         val lastRatio = prefs.getInt(KEY_LAST_RATIO, 0)
         var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
+        val hasSavedSignalBasis = lastSignalEntryPrice > 0
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
@@ -106,7 +107,7 @@ class StockWidget : GlanceAppWidget() {
                 )
 
                 val currentRatio = result.targetRatio
-                val enteredAny = lastRatio == 0 && currentRatio > 0
+                val enteredAny = currentRatio > 0 && !hasSavedSignalBasis
                 val exitedToCash = lastRatio > 0 && currentRatio == 0
                 val wasTqqqTier = lastRatio >= 80
                 val wasQld = lastRatio == 10
@@ -271,6 +272,11 @@ class StockWidget : GlanceAppWidget() {
         val qqqState = if (res.isQqqBullish) "BULL" else "BEAR"
         val tqqqState = if (res.isTqqqBullish) "BULL" else "BEAR"
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
+        val positionLabel = when (res.targetRatio) {
+            0 -> "CASH"
+            10 -> "QLD"
+            else -> "TQQQ"
+        }
         val cooldownState = when {
             isCooling && res.cooldownDaysLeft > 0 -> "${res.cooldownDaysLeft}D left"
             isCooling -> "COOL"
@@ -320,7 +326,7 @@ class StockWidget : GlanceAppWidget() {
                                     )
                                 )
                                 Text(
-                                    res.actionDesc,
+                                    positionLabel,
                                     style = TextStyle(
                                         color = ColorProvider(Color(0xFF8E8E93)),
                                         fontSize = (16 * factor).sp,
@@ -437,11 +443,11 @@ class StockWidget : GlanceAppWidget() {
                                 )
                             }
                             Column(modifier = GlanceModifier.defaultWeight()) {
-                                Text("STATUS", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text("DISP", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
-                                    if (isCooling) "WAIT" else res.actionTitle,
+                                    String.format("%.1f%%", res.disparity),
                                     style = TextStyle(
-                                        color = ColorProvider(Color(res.actionColor)),
+                                        color = ColorProvider(Color.White),
                                         fontSize = valueSize,
                                         fontWeight = FontWeight.Bold
                                     )
