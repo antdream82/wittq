@@ -218,7 +218,7 @@ class StockWidget : GlanceAppWidget() {
 
             if (resultdata != null) {
                 val (result, tChart, qChart) = resultdata
-                WidgetContent(result, tChart, qChart, lastUpdate, size, signalDesc)
+                WidgetContent(result, tChart, qChart, lastUpdate, size, signalDesc, effectiveSignalEntryPrice)
             } else {
                 val fallbackError = lastError ?: "Widget update failed"
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -320,7 +320,8 @@ class StockWidget : GlanceAppWidget() {
         qChart: Bitmap?,
         updateTime: String,
         size: DpSize,
-        lastSignal: String
+        lastSignal: String,
+        signalEntryPrice: Double
     ) {
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         val hpadding = (40 * factor).dp
@@ -501,6 +502,24 @@ class StockWidget : GlanceAppWidget() {
                                     )
                                 )
                             }
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("ENTRY", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    if (signalEntryPrice > 0) "$${String.format("%.2f", signalEntryPrice)}" else "NA",
+                                    style = TextStyle(
+                                        color = ColorProvider(Color.White),
+                                        fontSize = valueSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = GlanceModifier.height((8 * factor).dp))
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Column(modifier = GlanceModifier.defaultWeight()) {
                                 Text("DISP", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
