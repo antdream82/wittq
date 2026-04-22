@@ -73,13 +73,13 @@ fun PriceInputScreen() {
         }
 
         Text(
-            text = "TQQQ 위젯 설정",
+            text = "공통 평단 입력",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
 
         Text(
-            text = "수익률 계산을 위한 평단가를 입력해주세요.",
+            text = "TQQQ는 신호 기준으로 동작하고, 이 값은 AGTQ/Snow의 수익률 표시용입니다.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)

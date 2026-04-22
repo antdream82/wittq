@@ -68,9 +68,8 @@ class StockWidget : GlanceAppWidget() {
 
         val prefs = context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE)
         val userPosition = prefs.getString(KEY_USER_POSITION, "TQQQ") ?: "TQQQ"
-        val avgPrice = ((prefs.getFloat("user_avg_price", 50.0f)*10).toInt() / 10.0)
 
-        val savedSignalEntryPrice = prefs.getFloat(KEY_SIGNAL_ENTRY_PRICE, prefs.getFloat("last_entry_price", 0f))
+        val savedSignalEntryPrice = prefs.getFloat(KEY_SIGNAL_ENTRY_PRICE, 0f)
         val lastSignalEntryPrice = ((savedSignalEntryPrice * 10).toInt() / 10.0)
         val hadForceExit = prefs.getBoolean(KEY_HAD_FORCE_EXIT, false)
         val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
@@ -100,7 +99,6 @@ class StockWidget : GlanceAppWidget() {
                     tPrices = tHis,
                     spyPrices = spyHis,
                     userPosition,
-                    avgPrice,
                     lastSignalEntryPrice,
                     hadForceExit,
                     lastForceExitTime,
@@ -268,20 +266,22 @@ class StockWidget : GlanceAppWidget() {
         val hpadding = (40 * factor).dp
         val vpadding = (16 * factor).dp
 
-        val isCash = res.userPosition.uppercase() == "CASH"
+        val isCooling = res.actionTitle == "Cooling"
+        val isSpyRisk = res.actionTitle == "ESCAPE" && res.actionDesc == "SPY Weak"
+        val qqqState = if (res.isQqqBullish) "BULL" else "BEAR"
+        val tqqqState = if (res.isTqqqBullish) "BULL" else "BEAR"
+        val spyState = if (isSpyRisk) "RISK" else "SAFE"
+        val cooldownState = when {
+            isCooling && res.cooldownDaysLeft > 0 -> "${res.cooldownDaysLeft}D left"
+            isCooling -> "COOL"
+            else -> "OFF"
+        }
+        val finalPosColor = Color(res.actionColor)
         val grayColor = Color(0xFF8E8E93)
-        val disparity = res.disparity
 
-                        // [조정 2] PORTFOLIO 및 상태값 글자 크기 살짝 축소
-        val scoreSize = (44 * factor).sp
-        val titleSize = (14 * factor).sp
-        val contextSize = (20 * factor).sp // 기존 24 -> 22로 축소
-        val subactSize = (11 * factor).sp
-
-        val statusPrice = "$${String.format("%.2f", res.currentPrice)}"
-        val statusRate = if (isCash) "0.0%" else "${if (res.profitRate >= 0) "+" else ""}${String.format("%.1f", res.profitRate)}%"
-        val statusColor = if (isCash) grayColor else Color.White
-        val rateColor = if (isCash) grayColor else (if (res.profitRate >= 0) Color(0xFF30D158) else Color(0xFF0A84FF))
+        val labelSize = (10 * factor).sp
+        val valueSize = (13 * factor).sp
+        val actionSize = (16 * factor).sp
 
         Box(
             modifier = GlanceModifier
@@ -301,14 +301,11 @@ class StockWidget : GlanceAppWidget() {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${res.score}",
+                                text = res.marketStatus,
                                 style = TextStyle(
-                                    color = ColorProvider(
-                                        if (res.score >= 1) Color(0xFF30D158) else Color(
-                                            0xFFFF453A
-                                        )
-                                    ),
-                                    fontSize = scoreSize, fontWeight = FontWeight.Bold
+                                    color = ColorProvider(finalPosColor),
+                                    fontSize = (40 * factor).sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             )
                             Spacer(modifier = GlanceModifier.width(6.dp))
@@ -316,17 +313,17 @@ class StockWidget : GlanceAppWidget() {
                             Column {
                                 Spacer(modifier = GlanceModifier.height(4.dp))
                                 Text(
-                                    "SCORE ($updateTime)",
+                                    "FINAL POS ($updateTime)",
                                     style = TextStyle(
                                         color = ColorProvider(Color(0xFF8E8E93)),
                                         fontSize = (12 * factor).sp
                                     )
                                 )
                                 Text(
-                                    res.marketStatus,
+                                    res.actionDesc,
                                     style = TextStyle(
-                                        color = ColorProvider(Color.White),
-                                        fontSize = contextSize,
+                                        color = ColorProvider(Color(0xFF8E8E93)),
+                                        fontSize = (16 * factor).sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 )
@@ -334,35 +331,19 @@ class StockWidget : GlanceAppWidget() {
                         }
 
                         Spacer(modifier = GlanceModifier.height((7 * factor).dp))
-                        Text(
-                            "TQQQ ( 200MA )",
-                            style = TextStyle(
-                                color = ColorProvider(Color(0xFF8E8E93)),
-                                fontSize = (10 * factor).sp
-                            )
-                        )
-                        Spacer(modifier = GlanceModifier.height(4.dp))
                         tChart?.let {
                             Image(
                                 provider = ImageProvider(it),
                                 contentDescription = null,
-                                modifier = GlanceModifier.fillMaxWidth().height((42 * factor).dp)
+                                modifier = GlanceModifier.fillMaxWidth().height((44 * factor).dp)
                             )
                         }
-                        Spacer(modifier = GlanceModifier.height(8.dp))
-                        Text(
-                            "QQQ ( 3/161 )",
-                            style = TextStyle(
-                                color = ColorProvider(Color(0xFF8E8E93)),
-                                fontSize = (10 * factor).sp
-                            )
-                        )
-                        Spacer(modifier = GlanceModifier.height(4.dp))
+                        Spacer(modifier = GlanceModifier.height((6 * factor).dp))
                         qChart?.let {
                             Image(
                                 provider = ImageProvider(it),
                                 contentDescription = null,
-                                modifier = GlanceModifier.fillMaxWidth().height((42 * factor).dp)
+                                modifier = GlanceModifier.fillMaxWidth().height((44 * factor).dp)
                             )
                         }
                     }
@@ -370,143 +351,127 @@ class StockWidget : GlanceAppWidget() {
                     Spacer(modifier = GlanceModifier.width((16 * factor).dp))
 
                     // --- [우측 섹션] ---
-                    Column(
-                        modifier = GlanceModifier.defaultWeight()
-                    ) {
+                    Column(modifier = GlanceModifier.defaultWeight()) {
                         Row(
                             modifier = GlanceModifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("VOL", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
-                                    "CHANGE",
-                                    style = TextStyle(
-                                        color = ColorProvider(Color(0xFF8E8E93)),
-                                        fontSize = titleSize
-                                    )
+                                    String.format("%.2f%%", res.vol20),
+                                    style = TextStyle(color = ColorProvider(if (res.vol20 >= 5.8) Color(0xFFFF453A) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("SPY Risk", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    spyState,
+                                    style = TextStyle(color = ColorProvider(if (isSpyRisk) Color(0xFFFF453A) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = GlanceModifier.height((8 * factor).dp))
+
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("QQQ 3/161", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    qqqState,
+                                    style = TextStyle(color = ColorProvider(if (res.isQqqBullish) Color(0xFF30D158) else Color(0xFFFF453A)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("TQQQ 200MA", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    tqqqState,
+                                    style = TextStyle(color = ColorProvider(if (res.isTqqqBullish) Color(0xFF30D158) else Color(0xFFFF453A)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = GlanceModifier.height((8 * factor).dp))
+
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("ACTION", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    res.actionTitle,
+                                    style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = actionSize, fontWeight = FontWeight.Bold)
                                 )
                                 Text(
-                                    lastSignal,
+                                    res.actionDesc,
+                                    style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = (9 * factor).sp)
+                                )
+                            }
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("Cooldown", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    cooldownState,
+                                    style = TextStyle(color = ColorProvider(if (isCooling) Color(0xFF8E8E93) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = GlanceModifier.height((8 * factor).dp))
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("PRICE", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    "$${String.format("%.2f", res.currentPrice)}",
                                     style = TextStyle(
                                         color = ColorProvider(Color.White),
-                                        fontSize = (14 * factor).sp,
+                                        fontSize = valueSize,
                                         fontWeight = FontWeight.Bold
                                     )
                                 )
                             }
-
-                            Spacer(modifier = GlanceModifier.width((30 * factor).dp))
-
-                            Column {
-                                Spacer(modifier = GlanceModifier.height((16 * factor).dp))
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("STATUS", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
-                                    "ACTION",
-                                    style = TextStyle(
-                                        color = ColorProvider(Color(0xFF8E8E93)),
-                                        fontSize = titleSize
-                                    )
-                                )
-                                Text(
-                                    res.actionTitle,
+                                    if (isCooling) "WAIT" else res.actionTitle,
                                     style = TextStyle(
                                         color = ColorProvider(Color(res.actionColor)),
-                                        fontSize = contextSize,
+                                        fontSize = valueSize,
                                         fontWeight = FontWeight.Bold
-                                    )
-                                )
-                                Spacer(modifier = GlanceModifier.height(2.dp))
-                                Text(
-                                    res.actionDesc,
-                                    style = TextStyle(
-                                        color = ColorProvider(Color(res.actionColor)),
-                                        fontSize = subactSize
                                     )
                                 )
                             }
                         }
 
-                        Spacer(modifier = GlanceModifier.height((14 * factor).dp))
-
+                        Spacer(modifier = GlanceModifier.height((10 * factor).dp))
                         Text(
-                            statusPrice,
+                            "CHANGE / $lastSignal",
                             style = TextStyle(
-                                color = ColorProvider(statusColor),
-                                fontSize = contextSize,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                        Text(
-                            statusRate,
-                            style = TextStyle(
-                                color = ColorProvider(rateColor),
-                                fontSize = titleSize,
-                                fontWeight = FontWeight.Bold
+                                color = ColorProvider(Color(0xFF8E8E93)),
+                                fontSize = (9 * factor).sp
                             )
                         )
 
-                        Spacer(modifier = GlanceModifier.height((21 * factor).dp))
-
-                        Row(
-                            modifier = GlanceModifier.fillMaxWidth().padding(top = 6.dp),
-                            verticalAlignment = Alignment.Bottom
+                        Spacer(modifier = GlanceModifier.height((8 * factor).dp))
+                        Box(
+                            modifier = GlanceModifier
+                                .size((30 * factor).dp)
+                                .background(Color.White.copy(alpha = 0.15f))
+                                .cornerRadius((15 * factor).dp)
+                                .clickable(actionRunCallback<UpdateActionCallback>()),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column {
-                                Row(verticalAlignment = Alignment.Bottom) {
-                                    Text(
-                                        "DISP",
-                                        style = TextStyle(
-                                            color = ColorProvider(Color(0xFF8E8E93)),
-                                            fontSize = (10 * factor).sp
-                                        )
-                                    )
-                                    Spacer(modifier = GlanceModifier.width((6 * factor).dp))
-                                    Text(
-                                        text = String.format("%.1f%%", disparity),
-                                        style = TextStyle(
-                                            color = ColorProvider(Color.White),
-                                            fontSize = (14 * factor).sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                }
-                                Spacer(modifier = GlanceModifier.height((4 * factor).dp))
-                                Row(verticalAlignment = Alignment.Bottom) {
-                                    Text(
-                                        "VOL",
-                                        style = TextStyle(
-                                            color = ColorProvider(Color(0xFF8E8E93)),
-                                            fontSize = (10 * factor).sp
-                                        )
-                                    )
-                                    Spacer(modifier = GlanceModifier.width((6 * factor).dp))
-                                    Text(
-                                        String.format("%.1f", res.vol20),
-                                        style = TextStyle(
-                                            color = ColorProvider(Color.White),
-                                            fontSize = (14 * factor).sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = GlanceModifier.defaultWeight())
-
-                            Box(
-                                modifier = GlanceModifier
-                                    .size((30 * factor).dp)
-                                    .background(Color.White.copy(alpha = 0.15f))
-                                    .cornerRadius((15 * factor).dp)
-                                    .clickable(actionRunCallback<UpdateActionCallback>()),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(
-                                    // R.drawable.ic_refresh는 프로젝트에 등록된 이미지 리소스 ID입니다.
-                                    provider = ImageProvider(R.drawable.ic_refresh),
-                                    contentDescription = "Refresh",
-                                    modifier = GlanceModifier.size((16 * factor).dp) // 이미지 크기 조절
-                                )
-                            }
+                            Image(
+                                provider = ImageProvider(R.drawable.ic_refresh),
+                                contentDescription = "Refresh",
+                                modifier = GlanceModifier.size((16 * factor).dp)
+                            )
                         }
                     }
                 }

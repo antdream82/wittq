@@ -165,7 +165,6 @@ object TqqqAlgorithm {
         tPrices: List<Double>,
         spyPrices: List<Double>,
         userPosition: String,
-        avgPrice: Double = 50.0,
         lastSignalEntryPrice: Double = 0.0,
         hadForceExit: Boolean = false,
         lastForceExitTime: Long = 0L,
@@ -295,7 +294,11 @@ object TqqqAlgorithm {
                 }
             }
         }
-        val profitRate = if (avgPrice > 0) ((tqqqCurrent - avgPrice) / avgPrice) * 100 else 0.0
+        val profitRate = if (lastSignalEntryPrice > 0) {
+            ((tqqqCurrent - lastSignalEntryPrice) / lastSignalEntryPrice) * 100
+        } else {
+            0.0
+        }
 
         return AlgoResult(
             score = if (targetRatio >= 100) 2 else if (targetRatio > 0) 1 else 0,
