@@ -49,6 +49,7 @@ interface YahooApiService {
 
 object StockApiEngine {
     private const val CACHE_PREFS = "YahooCache"
+    private const val CACHE_PREFIX = "market_data_"
     private const val CACHE_TTL_MS = 15 * 60 * 1000L
     private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
 
@@ -65,9 +66,30 @@ object StockApiEngine {
 
     private fun cacheKey(symbol: String) = "market_data_${symbol.uppercase()}"
 
+    private fun removeCachedMarketData(context: Context, symbol: String) {
+        prefs(context).edit {
+            remove(cacheKey(symbol))
+        }
+    }
+
     private fun readCachedMarketData(context: Context, symbol: String): CachedMarketData? {
         val raw = prefs(context).getString(cacheKey(symbol), null) ?: return null
         return runCatching { gson.fromJson(raw, CachedMarketData::class.java) }.getOrNull()
+    }
+
+    private fun pruneCachedMarketData(context: Context, now: Long) {
+        prefs(context).all.forEach { (key, value) ->
+            if (!key.startsWith(CACHE_PREFIX) || value !is String) return@forEach
+            val cached = runCatching { gson.fromJson(value, CachedMarketData::class.java) }.getOrNull()
+            val invalid = cached == null ||
+                cached.data.timestamps.isEmpty() ||
+                now - cached.savedAtMs > CACHE_STALE_MS
+            if (invalid) {
+                prefs(context).edit {
+                    remove(key)
+                }
+            }
+        }
     }
 
     private fun writeCachedMarketData(context: Context, symbol: String, data: MarketData, now: Long) {
@@ -82,6 +104,7 @@ object StockApiEngine {
 
     suspend fun fetchMarketData(context: Context, symbol: String): MarketData? {
         val now = System.currentTimeMillis()
+        pruneCachedMarketData(context, now)
         val cached = readCachedMarketData(context, symbol)
         val cachedHasTimestamps = cached?.data?.timestamps?.isNotEmpty() == true
         if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
@@ -109,6 +132,7 @@ object StockApiEngine {
             if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_STALE_MS) {
                 cached.data
             } else {
+                removeCachedMarketData(context, symbol)
                 null
             }
         }
