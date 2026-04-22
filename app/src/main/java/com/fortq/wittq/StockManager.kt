@@ -1,6 +1,10 @@
 package com.fortq.wittq
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
+import androidx.core.content.edit
+import com.google.gson.Gson
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -27,6 +31,11 @@ data class MarketData(
     val history: List<Double>
 )
 
+data class CachedMarketData(
+    val savedAtMs: Long,
+    val data: MarketData
+)
+
 interface YahooApiService {
     @GET("v8/finance/chart/{symbol}")
     suspend fun getHistory(
@@ -37,35 +46,63 @@ interface YahooApiService {
 }
 
 object StockApiEngine {
+    private const val CACHE_PREFS = "YahooCache"
+    private const val CACHE_TTL_MS = 15 * 60 * 1000L
+    private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
+
     private val retrofit = Retrofit.Builder()
         .baseUrl("https://query1.finance.yahoo.com/")
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
     val service: YahooApiService = retrofit.create(YahooApiService::class.java)
+    private val gson = Gson()
 
-    suspend fun fetchPrices(symbol: String): List<Double> {
-        return try {
-            val response = service.getHistory(symbol)
-            response.chart.result?.get(0)?.indicators?.quote?.get(0)?.close
-                ?.filterNotNull() ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
+    private fun prefs(context: Context): SharedPreferences =
+        context.applicationContext.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+
+    private fun cacheKey(symbol: String) = "market_data_${symbol.uppercase()}"
+
+    private fun readCachedMarketData(context: Context, symbol: String): CachedMarketData? {
+        val raw = prefs(context).getString(cacheKey(symbol), null) ?: return null
+        return runCatching { gson.fromJson(raw, CachedMarketData::class.java) }.getOrNull()
+    }
+
+    private fun writeCachedMarketData(context: Context, symbol: String, data: MarketData, now: Long) {
+        prefs(context).edit {
+            putString(cacheKey(symbol), gson.toJson(CachedMarketData(now, data)))
         }
     }
-    suspend fun fetchMarketData(symbol: String): MarketData? {
+
+    suspend fun fetchPrices(context: Context, symbol: String): List<Double> {
+        return fetchMarketData(context, symbol)?.history ?: emptyList()
+    }
+
+    suspend fun fetchMarketData(context: Context, symbol: String): MarketData? {
+        val now = System.currentTimeMillis()
+        val cached = readCachedMarketData(context, symbol)
+        if (cached != null && now - cached.savedAtMs <= CACHE_TTL_MS) {
+            return cached.data
+        }
+
         return try {
             val response = service.getHistory(symbol)
             val result = response.chart.result?.firstOrNull() ?: return null
-
-            MarketData(
+            val data = MarketData(
                 currentPrice = result.meta.regularMarketPrice,
                 prevClose = result.meta.previousClose,
                 history = result.indicators.quote.first().close.filterNotNull()
             )
+
+            writeCachedMarketData(context, symbol, data, now)
+            data
         } catch (e: Exception) {
             Log.e("API_ERROR", e.message.toString())
-            null
+            if (cached != null && now - cached.savedAtMs <= CACHE_STALE_MS) {
+                cached.data
+            } else {
+                null
+            }
         }
     }
 }

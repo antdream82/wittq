@@ -86,8 +86,8 @@ class SnowWidget : GlanceAppWidget() {
 
         val resultData = withContext(Dispatchers.IO) {
             try {
-                val tqData = StockApiEngine.fetchMarketData("TQQQ") ?: return@withContext null
-                val qqData = StockApiEngine.fetchMarketData("QQQ") ?: return@withContext null
+                val tqData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
+                val qqData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
                 val tHistory = tqData.history
                 val qHistory = qqData.history
 

@@ -77,7 +77,7 @@ class AGTQWidget : GlanceAppWidget() {
 
         val resultData = withContext(Dispatchers.IO) {
             try {
-                val marketData = StockApiEngine.fetchMarketData("TQQQ") ?: return@withContext null
+                val marketData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
                 val history = marketData.history
                 val entryPrice = ((prefs.getFloat("agt_entry_price", 0.0f) * 10).toInt() / 10.0)
                 val entryTime = prefs.getLong("agt_entry_time", 0L)

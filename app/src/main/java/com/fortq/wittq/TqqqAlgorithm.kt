@@ -197,6 +197,11 @@ object TqqqAlgorithm {
         var actionColor: Long = 0xFF8E8E93
 
         // [작동 우선 순위 1, 2, 3] 강제 탈출 조건
+        val isReady = !qqqRsi.isNaN() &&
+            qPrices.size >= 161 &&
+            tPrices.size >= 200 &&
+            spyPrices.size >= 200
+
         val isTqqqBullish = disparityTQQQ >= ENTRY100_DISP
         val isQqqBullish = qqqMA3 > qqqMA161
         val isVolatilityRisk = vol20 >= VOL_RISK_LIMIT
@@ -216,6 +221,13 @@ object TqqqAlgorithm {
         val canEnter = if (hadForceExit) !coolingActive && qqqRsi >= COOLDOWN_RSI else true
 
         when {
+            // 0) 데이터 준비 부족
+            !isReady -> {
+                targetRatio = 0
+                actionTitle = "WAIT"
+                actionDesc = "Loading"
+                actionColor = 0xFF8E8E93
+            }
             // 1) 변동성 Risk
             isVolatilityRisk -> {
                 targetRatio = 0
@@ -355,14 +367,24 @@ object TqqqAlgorithm {
     }
 
     private fun calculateRSI(prices: List<Double>, period: Int): Double {
-        if (prices.size < period + 1) return 50.0
-        val changes = prices.zipWithNext { a, b -> b - a }
-        var rsiup = changes.takeLast(period).filter { it > 0 }.sum() / period
-        var rsidown = changes.takeLast(period).filter { it < 0 }.map { Math.abs(it) }.sum() / period
+        if (prices.size < period + 1) return Double.NaN
 
-        if (rsidown == 0.0) return 100.0
-        val rsvalue = rsiup / rsidown
-        return 100.0 - (100.0 / (1.0 + rsvalue))
+        val changes = prices.zipWithNext { a, b -> b - a }
+        var avgGain = changes.take(period).filter { it > 0 }.sum() / period
+        var avgLoss = changes.take(period).filter { it < 0 }.sumOf { kotlin.math.abs(it) } / period
+
+        for (i in period until changes.size) {
+            val change = changes[i]
+            val gain = if (change > 0) change else 0.0
+            val loss = if (change < 0) kotlin.math.abs(change) else 0.0
+            avgGain = ((avgGain * (period - 1)) + gain) / period
+            avgLoss = ((avgLoss * (period - 1)) + loss) / period
+        }
+
+        if (avgGain == 0.0 && avgLoss == 0.0) return 50.0
+        if (avgLoss == 0.0) return 100.0
+        val rs = avgGain / avgLoss
+        return 100.0 - (100.0 / (1.0 + rs))
     }
     private fun calculateMA(prices: List<Double>, period: Int, count: Int): List<Double> {
         if (prices.size < period) return emptyList()

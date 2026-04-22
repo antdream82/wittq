@@ -80,9 +80,9 @@ class StockWidget : GlanceAppWidget() {
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
-                val tqData = StockApiEngine.fetchMarketData("TQQQ") ?: return@withContext null
-                val qData = StockApiEngine.fetchMarketData("QQQ") ?: return@withContext null
-                val spyData = StockApiEngine.fetchMarketData("SPY") ?: return@withContext null
+                val tqData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
+                val qData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
+                val spyData = StockApiEngine.fetchMarketData(context, "SPY") ?: return@withContext null
                 val tHis = tqData.history
                 val qHis = qData.history
                 val spyHis = spyData.history
