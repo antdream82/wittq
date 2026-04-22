@@ -73,6 +73,7 @@ class StockWidget : GlanceAppWidget() {
         val persistedSignalEntryPrice = ((savedSignalEntryPrice * 10).toInt() / 10.0)
         val hadForceExit = prefs.getBoolean(KEY_HAD_FORCE_EXIT, false)
         val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
+        var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
@@ -117,7 +118,7 @@ class StockWidget : GlanceAppWidget() {
                 } else {
                     recoveredState?.lastRatio ?: 0
                 }
-                var signalDesc: String = prefs.getString(
+                signalDesc = prefs.getString(
                     KEY_LAST_SIGNAL_DESC,
                     recoveredState?.lastSignalDesc ?: "-"
                 ) ?: (recoveredState?.lastSignalDesc ?: "-")
