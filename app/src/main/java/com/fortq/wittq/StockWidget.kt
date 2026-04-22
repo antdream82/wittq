@@ -199,6 +199,8 @@ class StockWidget : GlanceAppWidget() {
             } catch (e: Exception) {
                 Log.e("WITTQ_DEBUG", "Data fetch failed: ${e.message}")
                 e.printStackTrace() // 상세 에러 추적
+                context.getSharedPreferences("YahooCache", Context.MODE_PRIVATE)
+                    .edit { putString("last_yahoo_error", "Widget update failed: ${e.message ?: "unknown error"}") }
                 null
             }
         }
@@ -215,12 +217,21 @@ class StockWidget : GlanceAppWidget() {
                 val (result, tChart, qChart) = resultdata
                 WidgetContent(result, tChart, qChart, lastUpdate, size, signalDesc)
             } else {
+                val fallbackError = lastError ?: "Widget update failed"
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Updating...", style = TextStyle(color = ColorProvider(Color.White)))
                         if (lastError != null) {
                             Text(
                                 lastError,
+                                style = TextStyle(
+                                    color = ColorProvider(Color.White.copy(alpha = 0.75f)),
+                                    fontSize = 9.sp
+                                )
+                            )
+                        } else {
+                            Text(
+                                fallbackError,
                                 style = TextStyle(
                                     color = ColorProvider(Color.White.copy(alpha = 0.75f)),
                                     fontSize = 9.sp
