@@ -78,6 +78,7 @@ object StockApiEngine {
     }
 
     private fun pruneCachedMarketData(context: Context, now: Long) {
+        var prunedCount = 0
         prefs(context).all.forEach { (key, value) ->
             if (!key.startsWith(CACHE_PREFIX) || value !is String) return@forEach
             val cached = runCatching { gson.fromJson(value, CachedMarketData::class.java) }.getOrNull()
@@ -88,7 +89,11 @@ object StockApiEngine {
                 prefs(context).edit {
                     remove(key)
                 }
+                prunedCount += 1
             }
+        }
+        if (prunedCount > 0) {
+            Log.d("API_CACHE", "Pruned $prunedCount stale Yahoo cache entries")
         }
     }
 
@@ -108,6 +113,7 @@ object StockApiEngine {
         val cached = readCachedMarketData(context, symbol)
         val cachedHasTimestamps = cached?.data?.timestamps?.isNotEmpty() == true
         if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
+            Log.d("API_CACHE", "Cache hit for $symbol")
             return cached.data
         }
 
@@ -126,13 +132,16 @@ object StockApiEngine {
             )
 
             writeCachedMarketData(context, symbol, data, now)
+            Log.d("API_CACHE", "Fetched fresh Yahoo data for $symbol (${data.history.size} bars)")
             data
         } catch (e: Exception) {
             Log.e("API_ERROR", e.message.toString())
             if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_STALE_MS) {
+                Log.d("API_CACHE", "Using stale cache for $symbol")
                 cached.data
             } else {
                 removeCachedMarketData(context, symbol)
+                Log.d("API_CACHE", "Dropped unusable cache for $symbol")
                 null
             }
         }
