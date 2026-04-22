@@ -143,10 +143,10 @@ class StockWidget : GlanceAppWidget() {
                 val enteredAny = effectiveLastRatio == 0 && currentRatio > 0 && !hasSignalBasis
                 val exitedToCash = effectiveLastRatio > 0 && currentRatio == 0
                 val wasTqqqTier = effectiveLastRatio >= 80
-                val wasQld = effectiveLastRatio == 10
-                val toQld = currentRatio == 10
+                val wasTwoThirds = effectiveLastRatio == 67
+                val toTwoThirds = currentRatio == 67
                 val toCash = currentRatio == 0
-                val meaningfulReduce = (wasTqqqTier && toQld) || (wasQld && toCash) || (wasTqqqTier && toCash)
+                val meaningfulReduce = (wasTqqqTier && toTwoThirds) || (wasTwoThirds && toCash) || (wasTqqqTier && toCash)
                 val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
                 val cooldownTrigger = meaningfulReduce || forceExitNow
                 val cooldownDone = effectiveHadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
@@ -335,7 +335,7 @@ class StockWidget : GlanceAppWidget() {
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
         val positionLabel = when (res.targetRatio) {
             0 -> "CASH"
-            10 -> "QLD"
+            67 -> "TQQQ 67%"
             else -> "TQQQ"
         }
         val cooldownState = when {
@@ -633,10 +633,10 @@ class StockWidget : GlanceAppWidget() {
             val enteredAny = lastRatio == 0 && currentRatio > 0
             val exitedToCash = lastRatio > 0 && currentRatio == 0
             val wasTqqqTier = lastRatio >= 80
-            val wasQld = lastRatio == 10
-            val toQld = currentRatio == 10
+            val wasTwoThirds = lastRatio == 67
+            val toTwoThirds = currentRatio == 67
             val toCash = currentRatio == 0
-            val meaningfulReduce = (wasTqqqTier && toQld) || (wasQld && toCash) || (wasTqqqTier && toCash)
+            val meaningfulReduce = (wasTqqqTier && toTwoThirds) || (wasTwoThirds && toCash) || (wasTqqqTier && toCash)
             val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
             val cooldownTrigger = meaningfulReduce || forceExitNow
             val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
@@ -722,7 +722,7 @@ class StockWidget : GlanceAppWidget() {
         95 -> "95%"
         90 -> "90%"
         80 -> "80%"
-        10 -> "QLD"
+        67 -> "2/3"
         5 -> "5%"
         0 -> "CASH"
         else -> "${ratio}%"

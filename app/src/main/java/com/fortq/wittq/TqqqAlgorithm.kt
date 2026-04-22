@@ -269,7 +269,7 @@ object TqqqAlgorithm {
                 targetRatio = when {
                     entry100 -> 100
                     entry10 && specialEntry -> 100
-                    entry10 -> 10
+                    entry10 -> 67
                     else -> 0
                 }
 
@@ -292,7 +292,7 @@ object TqqqAlgorithm {
                     95 -> "TRIM95"
                     90 -> "TRIM90"
                     80 -> "TRIM80"
-                    10 -> "QLD"
+                    67 -> "2/3"
                     5 -> "MINI"
                     else -> "-"
                 }
