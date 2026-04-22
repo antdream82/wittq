@@ -48,6 +48,14 @@ class UpdateActionCallback : ActionCallback {
 }
 
 class StockWidget : GlanceAppWidget() {
+    companion object {
+        private const val KEY_SIGNAL_ENTRY_PRICE = "last_signal_entry_price"
+        private const val KEY_HAD_FORCE_EXIT = "had_force_exit"
+        private const val KEY_LAST_FORCE_EXIT_TIME = "last_force_exit_time"
+        private const val KEY_USER_POSITION = "user_position"
+        private const val KEY_LAST_RATIO = "last_ratio"
+        private const val KEY_LAST_SIGNAL_DESC = "last_signal_desc"
+    }
 
     // 3. SizeMode 적용: 기기별 다양한 4x2 사이즈에 대응
     override val sizeMode = SizeMode.Responsive(
@@ -59,14 +67,16 @@ class StockWidget : GlanceAppWidget() {
         StockUpdateWorker.enqueue(context)
 
         val prefs = context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE)
-        val userPosition = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
+        val userPosition = prefs.getString(KEY_USER_POSITION, "TQQQ") ?: "TQQQ"
         val avgPrice = ((prefs.getFloat("user_avg_price", 50.0f)*10).toInt() / 10.0)
 
-        val lastEntryPrice = ((prefs.getFloat("last_entry_price", 0f) * 10).toInt() / 10.0)
-        val hadForceExit = prefs.getBoolean("had_force_exit", false)
+        val savedSignalEntryPrice = prefs.getFloat(KEY_SIGNAL_ENTRY_PRICE, prefs.getFloat("last_entry_price", 0f))
+        val lastSignalEntryPrice = ((savedSignalEntryPrice * 10).toInt() / 10.0)
+        val hadForceExit = prefs.getBoolean(KEY_HAD_FORCE_EXIT, false)
+        val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
 
-        val lastRatio = prefs.getInt("last_ratio", 0)
-        var signalDesc: String = prefs.getString("last_signal_desc", "-") ?: "-"
+        val lastRatio = prefs.getInt(KEY_LAST_RATIO, 0)
+        var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
@@ -91,37 +101,56 @@ class StockWidget : GlanceAppWidget() {
                     spyPrices = spyHis,
                     userPosition,
                     avgPrice,
-                    lastEntryPrice,
-                    hadForceExit
+                    lastSignalEntryPrice,
+                    hadForceExit,
+                    lastForceExitTime,
+                    System.currentTimeMillis()
                 )
 
                 val currentRatio = result.targetRatio
+                val enteredAny = lastRatio == 0 && currentRatio > 0
+                val exitedToCash = lastRatio > 0 && currentRatio == 0
+                val wasTqqqTier = lastRatio >= 80
+                val wasQld = lastRatio == 10
+                val toQld = currentRatio == 10
+                val toCash = currentRatio == 0
+                val meaningfulReduce = (wasTqqqTier && toQld) || (wasQld && toCash) || (wasTqqqTier && toCash)
+                val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
+                val cooldownTrigger = meaningfulReduce || forceExitNow
+                val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
+                val now = System.currentTimeMillis()
+                val nextHadForceExit = when {
+                    enteredAny -> false
+                    cooldownTrigger -> true
+                    cooldownDone -> false
+                    else -> hadForceExit
+                }
 
                 if (lastRatio != currentRatio) {
-                    val direction = if (currentRatio > lastRatio) "↑" else "↓"
-                    signalDesc = "${lastRatio}% > ${currentRatio}% ${direction}"
+                    signalDesc = "${ratioLabel(lastRatio)} -> ${ratioLabel(currentRatio)}"
+                }
 
-                    prefs.edit {
-                        putInt("last_ratio", currentRatio)
-                        putString("last_signal_desc", signalDesc)
-                        // 강제 탈출(ESCAPE, STOP LOSS) 시 상태 저장
-                        if (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP LOSS") {
-                            putBoolean("had_force_exit", true)
-                            putFloat("last_entry_price", 0f)
-                        }
-                        // 신규 진입 시(100% 비중) 진입가 기록
-                        else if (result.targetRatio == 100 && lastEntryPrice == 0.0) {
-                            putFloat("last_entry_price", result.currentPrice.toFloat())
-                        }
+                prefs.edit {
+                    putInt(KEY_LAST_RATIO, currentRatio)
+                    putString(KEY_LAST_SIGNAL_DESC, signalDesc)
 
-                        // RSI가 43 이상으로 회복되면 강제탈출 기록 해제
-                        if (result.rsi >= 43) {
-                            putBoolean("had_force_exit", false)
-                        }
-
-                        // 현재 포지션 동기화
-                        putString("user_position", result.displayPosition)
+                    if (enteredAny) {
+                        putFloat(KEY_SIGNAL_ENTRY_PRICE, result.currentPrice.toFloat())
+                        putBoolean(KEY_HAD_FORCE_EXIT, false)
+                        putLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
+                    } else if (cooldownTrigger) {
+                        putBoolean(KEY_HAD_FORCE_EXIT, true)
+                        putLong(KEY_LAST_FORCE_EXIT_TIME, now)
+                    } else if (cooldownDone) {
+                        putBoolean(KEY_HAD_FORCE_EXIT, false)
+                        putLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
                     }
+
+                    if (currentRatio == 0 && !nextHadForceExit) {
+                        putFloat(KEY_SIGNAL_ENTRY_PRICE, 0f)
+                    }
+
+                    putString(KEY_USER_POSITION, result.displayPosition)
                 }
 
                 val chartDays = 120
@@ -243,7 +272,7 @@ class StockWidget : GlanceAppWidget() {
         val grayColor = Color(0xFF8E8E93)
         val disparity = res.disparity
 
-        // [조정 2] PORTFOLIO 및 ACTION 값 글자 크기 살짝 축소
+                        // [조정 2] PORTFOLIO 및 상태값 글자 크기 살짝 축소
         val scoreSize = (44 * factor).sp
         val titleSize = (14 * factor).sp
         val contextSize = (20 * factor).sp // 기존 24 -> 22로 축소
@@ -350,7 +379,7 @@ class StockWidget : GlanceAppWidget() {
                         ) {
                             Column {
                                 Text(
-                                    "ACTION",
+                                    "CHANGE",
                                     style = TextStyle(
                                         color = ColorProvider(Color(0xFF8E8E93)),
                                         fontSize = titleSize
@@ -371,7 +400,7 @@ class StockWidget : GlanceAppWidget() {
                             Column {
                                 Spacer(modifier = GlanceModifier.height((16 * factor).dp))
                                 Text(
-                                    "STATUS",
+                                    "ACTION",
                                     style = TextStyle(
                                         color = ColorProvider(Color(0xFF8E8E93)),
                                         fontSize = titleSize
@@ -491,5 +520,16 @@ class StockWidget : GlanceAppWidget() {
             val endIdx = prices.size - count + i
             prices.subList((endIdx - period + 1).coerceAtLeast(0), endIdx + 1).average()
         }
+    }
+
+    private fun ratioLabel(ratio: Int): String = when (ratio) {
+        100 -> "TQQQ"
+        95 -> "95%"
+        90 -> "90%"
+        80 -> "80%"
+        10 -> "QLD"
+        5 -> "5%"
+        0 -> "CASH"
+        else -> "${ratio}%"
     }
 }

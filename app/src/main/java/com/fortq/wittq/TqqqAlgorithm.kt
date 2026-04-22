@@ -23,6 +23,7 @@ data class AlgoResult(
     val profitRate: Double,
     val isTqqqBullish: Boolean,
     val isQqqBullish: Boolean,
+    val cooldownDaysLeft: Int = 0,
 )
 
 data class LinRegResult(
@@ -144,17 +145,33 @@ object AGTQStrategy {
 
 
 object TqqqAlgorithm {
+    private const val VOL_RISK_LIMIT = 5.8
+    private const val SPY_RISK_RATIO = 0.974
+    private const val DRAWDOWN_STOP_RATIO = 0.942
+    private const val ENTRY100_DISP = 101.0
+    private const val SPECIAL_SLOPE_TH = 0.11
+    private const val SPECIAL_DISP_MAX = 98.8
+    private const val SPECIAL_VOL_MAX = 6.0
+    private const val TRIM90_DISP = 139.0
+    private const val TRIM80_DISP = 146.0
+    private const val TRIM5_DISP = 149.0
+    private const val EXIT_DISP = 151.0
+    private const val PROFIT_TRIM_RATIO = 1.10
+    private const val COOLDOWN_DAYS = 7
+    private const val COOLDOWN_RSI = 43.0
+
     fun calculate(
         qPrices: List<Double>,
         tPrices: List<Double>,
         spyPrices: List<Double>,
         userPosition: String,
         avgPrice: Double = 50.0,
-        lastEntryPrice: Double = 0.0,
-        hadForceExit: Boolean = false
+        lastSignalEntryPrice: Double = 0.0,
+        hadForceExit: Boolean = false,
+        lastForceExitTime: Long = 0L,
+        currentTimeMs: Long = System.currentTimeMillis(),
     ): AlgoResult {
         val tqqqCurrent = tPrices.lastOrNull() ?: 0.0
-        val qqqCurrent = qPrices.lastOrNull() ?: 0.0
         val spyCurrent = spyPrices.lastOrNull() ?: 0.0
 
         val tqqqMA200 = tPrices.takeLast(200).average()
@@ -173,30 +190,31 @@ object TqqqAlgorithm {
 
         val tqDisSlopeResult = calculateSlope(disparityList)
         val tqDisSlope = tqDisSlopeResult.slope
-        val spySloreResult = calculateSlope(spyPrices)
-        val spySlope = spySloreResult.slope
 
         // 상태 설정
         var targetRatio = 0
         var actionTitle: String
         var actionDesc: String
         var actionColor: Long = 0xFF8E8E93
-        val bullColor = 0xFF30D158
-        val bearColor = 0xFFFF453A
-        val grayColor = 0xFF8E8E93
-        val purpleColor = 0xFFBF5AF2
 
         // [작동 우선 순위 1, 2, 3] 강제 탈출 조건
-        val isTqqqBullish = disparityTQQQ >= 101
+        val isTqqqBullish = disparityTQQQ >= ENTRY100_DISP
         val isQqqBullish = qqqMA3 > qqqMA161
-        val isVolatilityRisk = vol20 >= 5.9
-        val isSpyDisparityRisk = disparitySPY <= 0.9775
-        val isDrawdownRisk = if (lastEntryPrice > 0) {
-            (tqqqCurrent <= lastEntryPrice * 0.941) // 진입가 대비 5.9% 하락
+        val isVolatilityRisk = vol20 >= VOL_RISK_LIMIT
+        val isSpyDisparityRisk = disparitySPY <= SPY_RISK_RATIO
+        val isDrawdownRisk = if (lastSignalEntryPrice > 0) {
+            tqqqCurrent <= lastSignalEntryPrice * DRAWDOWN_STOP_RATIO
         } else false
 
-        // [작동 우선 순위 4] 재진입 구조 (쿨타임)
-        val canEnter = if (hadForceExit) qqqRsi >= 43 else true
+        val cooldownMillis = COOLDOWN_DAYS * 24L * 60L * 60L * 1000L
+        val coolingActive = hadForceExit && lastForceExitTime > 0L && (currentTimeMs - lastForceExitTime) < cooldownMillis
+        val remainingMillis = if (coolingActive) {
+            (cooldownMillis - (currentTimeMs - lastForceExitTime)).coerceAtLeast(0L)
+        } else 0L
+        val cooldownDaysLeft = if (coolingActive) {
+            kotlin.math.ceil(remainingMillis / (24.0 * 60.0 * 60.0 * 1000.0)).toInt()
+        } else 0
+        val canEnter = if (hadForceExit) !coolingActive && qqqRsi >= COOLDOWN_RSI else true
 
         when {
             // 1) 변동성 Risk
@@ -224,15 +242,17 @@ object TqqqAlgorithm {
             !canEnter -> {
                 targetRatio = 0
                 actionTitle = "Cooling"
-                actionDesc = "RSI<43"
+                actionDesc = if (coolingActive) "${cooldownDaysLeft}D lock left" else "RSI < ${COOLDOWN_RSI.toInt()}"
                 actionColor = 0xFF8E8E93
             }
             // 5) 진입 조건 및 6) 단계적 감량
             else -> {
                 // 진입 조건 판별
-                val entry100 = disparityTQQQ >= 101
+                val entry100 = disparityTQQQ >= ENTRY100_DISP
                 val entry10 = qqqMA3 > qqqMA161 && tqqqCurrent < tqqqMA200
-                val specialEntry = (tqDisSlope >= 0.11) && (disparityTQQQ <= 98.8) && (vol20 <= 6.0)
+                val specialEntry = (tqDisSlope >= SPECIAL_SLOPE_TH) &&
+                    (disparityTQQQ <= SPECIAL_DISP_MAX) &&
+                    (vol20 <= SPECIAL_VOL_MAX)
 
                 // 기본 진입 비중 결정
                 targetRatio = when {
@@ -245,20 +265,34 @@ object TqqqAlgorithm {
                 // 단계적 감량 (Scaling Down) - 100% 진입 상태일 때 적용
                 if (targetRatio == 100) {
                     targetRatio = when {
-                        disparityTQQQ >= 151 -> 0
-                        disparityTQQQ >= 149 -> 5
-                        disparityTQQQ >= 146 -> 80
-                        disparityTQQQ >= 139 -> 90
-                        // 10% 상승 시 95% 감량 로직 (lastEntryPrice 기반)
-                        lastEntryPrice > 0 && tqqqCurrent >= lastEntryPrice * 1.10 -> 95
+                        disparityTQQQ >= EXIT_DISP -> 0
+                        disparityTQQQ >= TRIM5_DISP -> 5
+                        disparityTQQQ >= TRIM80_DISP -> 80
+                        disparityTQQQ >= TRIM90_DISP -> 90
+                        lastSignalEntryPrice > 0 && tqqqCurrent >= lastSignalEntryPrice * PROFIT_TRIM_RATIO -> 95
                         else -> 100
                     }
                 }
 
                 // UI 메시지 설정
                 actionTitle = if (targetRatio > 0) "HOLD" else "WAIT"
-                actionDesc = if (targetRatio == 100) "FULL" else if (targetRatio >= 10) "SPLIT" else "-"
-                actionColor = if (targetRatio >= 100) 0xFF30D158 else if (targetRatio > 0) 0xFFFFCC00 else 0xFF8E8E93
+                actionDesc = when (targetRatio) {
+                    100 -> "FULL"
+                    95 -> "TRIM95"
+                    90 -> "TRIM90"
+                    80 -> "TRIM80"
+                    10 -> "QLD"
+                    5 -> "MINI"
+                    else -> "-"
+                }
+                actionColor = when {
+                    targetRatio >= 100 -> 0xFF30D158
+                    targetRatio >= 95 -> 0xFF0A84FF
+                    targetRatio >= 80 -> 0xFF5AC8FA
+                    targetRatio >= 10 -> 0xFFFFCC00
+                    targetRatio > 0 -> 0xFF8E8E93
+                    else -> 0xFF8E8E93
+                }
             }
         }
         val profitRate = if (avgPrice > 0) ((tqqqCurrent - avgPrice) / avgPrice) * 100 else 0.0
@@ -279,6 +313,7 @@ object TqqqAlgorithm {
             userPosition = userPosition,
             isTqqqBullish = isTqqqBullish,
             isQqqBullish = isQqqBullish,
+            cooldownDaysLeft = cooldownDaysLeft,
         )
     }
 

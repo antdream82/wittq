@@ -82,11 +82,6 @@ class SnowWidget : GlanceAppWidget() {
             val ddipRatio = (if (dipPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
             ((dipPrice * 20) + (dip2Price * 50)) / ddipRatio.coerceAtLeast(1)
         } else 0.0
-        val entryPrice = if (signalPrice > 0 || dipAvgPrice > 0) {
-            val ddip = (if (dipPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
-            val totalRatio = (if (signalPrice > 0) 100 - ddip else 0) + (if (dipAvgPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
-            ((signalPrice * (100-ddip)) + (dipPrice * 20) + (dip2Price * 50)) / totalRatio.coerceAtLeast(1)
-        } else 0.0
 
 
         val resultData = withContext(Dispatchers.IO) {
@@ -101,7 +96,6 @@ class SnowWidget : GlanceAppWidget() {
                     qHistory = qHistory,
                     tqCurrent = tqData.currentPrice,
                     qqCurrent = qqData.currentPrice,
-                    entryPrice = entryPrice,
                     signalPrice = signalPrice,
                     entryDays = entryDays,
                     avgPrice = SavedPrice,
@@ -125,7 +119,7 @@ class SnowWidget : GlanceAppWidget() {
                     ma5Line = tqMa5,
                     ma220Line = tqMa220,
                     color = Color(res.snowColor),
-                    entryPrice = entryPrice,
+                    entryPrice = signalPrice,
                     dipPrice = dipPrice,
                     dip2Price = dip2Price,
                     isStopLoss = res.isbear,
@@ -162,7 +156,7 @@ class SnowWidget : GlanceAppWidget() {
 
             resultData?.let { (res, tmChart, tqCurrent) ->
                 // 여기서 tmChart와 currentPrice를 UI 함수에 전달합니다.
-                SnowWidgetUI(res, lastUpdate, size, SavedPrice, tmChart, entryPrice, entryDays, tqCurrent)
+                SnowWidgetUI(res, lastUpdate, size, SavedPrice, tmChart, signalPrice, entryDays, tqCurrent)
             } ?: run {
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {

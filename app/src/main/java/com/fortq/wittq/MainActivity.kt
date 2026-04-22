@@ -50,9 +50,6 @@ fun PriceInputScreen() {
     var avgPrice by remember { mutableStateOf(prefs.getFloat("user_avg_price", 50.0f).toString()) }
     var selectedPos by remember { mutableStateOf(prefs.getString("user_position", "TQQQ") ?: "TQQQ") }
 
-    val lastEntryPrice = prefs.getFloat("last_entry_price", 0f)
-    val hadForceExit = prefs.getBoolean("had_force_exit", false)
-
     val posOptions = listOf("TQQQ", "CASH")
     val isCashSelected = selectedPos == "CASH"
     var isUpdating by remember { mutableStateOf(false) }
@@ -123,7 +120,11 @@ fun PriceInputScreen() {
 
                                 if (isCashSelected) {
                                     putFloat("last_entry_price", 0f)
+                                    putFloat("last_signal_entry_price", 0f)
                                     putBoolean("had_force_exit", false)
+                                    putLong("last_force_exit_time", 0L)
+                                    putInt("last_ratio", 0)
+                                    putString("last_signal_desc", "-")
                                 }
                                 val saved = prefs.getFloat("user_avg_price", 0f)
                                 Log.d("WITTQ_DEBUG", "Saved: avgPrice=$saved")

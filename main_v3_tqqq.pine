@@ -1,0 +1,243 @@
+//@version=6
+indicator("변형TQ", overlay=true, max_labels_count=500)
+
+symQQQ = input.symbol("NASDAQ:QQQ", "QQQ")
+symSPY = input.symbol("AMEX:SPY", "SPY")
+symTQQQ = input.symbol("NASDAQ:TQQQ", "TQQQ")
+
+lenVol = input.int(20, "Volatility Length", minval=2)
+thrVolInput = input.float(5.8, "Volatility Limit (%)", step=0.1)
+lenMA3 = input.int(3, "QQQ 3MA", minval=1)
+lenMA161 = input.int(161, "QQQ 161MA", minval=1)
+lenMA200 = input.int(200, "TQQQ / SPY 200MA", minval=1)
+
+// tuned thresholds
+spyRiskRatio = input.float(0.974, "SPY Risk Ratio", step=0.0005)
+drawdownStopRatio = input.float(0.942, "Drawdown Stop Ratio", step=0.001)
+
+entry100Disp = input.float(101.0, "Entry100 Disparity", step=0.1)
+specialSlopeTh = input.float(0.11, "Special Entry Slope", step=0.01)
+specialDispMax = input.float(98.8, "Special Entry Disp Max", step=0.1)
+specialVolMax = input.float(0.06, "Special Entry Vol Max", step=0.001)
+
+trim90Disp = input.float(139.0, "Trim To 90 Disp", step=0.1)
+trim80Disp = input.float(146.0, "Trim To 80 Disp", step=0.1)
+trim5Disp = input.float(149.0, "Trim To 5 Disp", step=0.1)
+exitDisp = input.float(151.0, "Exit Disp", step=0.1)
+
+profitTrimRatio = input.float(1.10, "Profit Trim Ratio", step=0.01)
+
+// cooldown
+cooldownMode = input.string("both", "Cooldown Mode", options=["none", "rsi_only", "abs_only", "both"])
+cooldownDaysInput = input.int(7, "Absolute Cooldown Days", minval=0)
+cooldownRsi = input.float(43.0, "Cooldown RSI", step=0.1)
+
+nonRepaint = input.bool(true, "Non-repaint")
+
+thrVol = thrVolInput / 100.0
+
+f_nr(x) =>
+    nonRepaint ? (barstate.isconfirmed ? x : x[1]) : x
+
+f_vol(src, len) =>
+    ret = src / src[1] - 1.0
+    ta.stdev(ret, len)
+
+f_disp_list_slope(src, len) =>
+    float sumX = 0.0
+    float sumY = 0.0
+    float sumXY = 0.0
+    float sumX2 = 0.0
+    for i = 0 to len - 1
+        float x = i
+        float y = src[len - 1 - i]
+        sumX += x
+        sumY += y
+        sumXY += x * y
+        sumX2 += x * x
+    float denom = len * sumX2 - sumX * sumX
+    denom != 0 ? (len * sumXY - sumX * sumY) / denom : na
+
+[q_ma3, q_ma161, q_rsi] = request.security(
+     symQQQ, "1D",
+     [f_nr(ta.sma(close, lenMA3)), f_nr(ta.sma(close, lenMA161)), f_nr(ta.rsi(close, 14))],
+     barmerge.gaps_off, barmerge.lookahead_off)
+
+[t_close, t_ma200, t_vol, t_time] = request.security(
+     symTQQQ, "1D",
+     [f_nr(close), f_nr(ta.sma(close, lenMA200)), f_nr(f_vol(close, lenVol)), f_nr(time)],
+     barmerge.gaps_off, barmerge.lookahead_off)
+
+[s_close, s_ma200] = request.security(
+     symSPY, "1D",
+     [f_nr(close), f_nr(ta.sma(close, lenMA200))],
+     barmerge.gaps_off, barmerge.lookahead_off)
+
+var float lastSignalEntryPrice = na
+var bool hadForceExitState = false
+var int lastForceExitTime = na
+
+isReady = not na(q_ma3) and not na(q_ma161) and not na(q_rsi) and not na(t_close) and not na(t_ma200) and not na(t_vol) and not na(s_close) and not na(s_ma200)
+qqqBull = isReady and q_ma3 > q_ma161
+tqqqBull = isReady and t_close > t_ma200
+volRisk = isReady and t_vol > thrVol
+spyRisk = isReady and (s_close / s_ma200 <= spyRiskRatio)
+drawdownRisk = not na(lastSignalEntryPrice) and t_close <= lastSignalEntryPrice * drawdownStopRatio
+
+cooldownMs = cooldownDaysInput * 24 * 60 * 60 * 1000
+coolingActive = hadForceExitState and not na(lastForceExitTime) and (t_time - lastForceExitTime) < cooldownMs
+remainingMs = coolingActive ? math.max(0, cooldownMs - (t_time - lastForceExitTime)) : 0
+remainingDays = coolingActive ? math.ceil(remainingMs / (24.0 * 60.0 * 60.0 * 1000.0)) : 0
+
+useAbs = cooldownMode == "abs_only" or cooldownMode == "both"
+useRsi = cooldownMode == "rsi_only" or cooldownMode == "both"
+
+absPass = useAbs ? not coolingActive : true
+rsiPass = useRsi ? q_rsi >= cooldownRsi : true
+canEnter = hadForceExitState ? (absPass and rsiPass) : true
+
+disp = t_close / t_ma200 * 100.0
+dispSlope = f_disp_list_slope(disp, 45)
+
+int targetPos = 0
+string actionTitle = "WAIT"
+string actionDesc = "-"
+color actionColor = color.new(color.gray, 0)
+
+if not isReady
+    targetPos := 0
+    actionTitle := "WAIT"
+    actionDesc := "Loading"
+else if volRisk
+    targetPos := 0
+    actionTitle := "ESCAPE"
+    actionDesc := "Overheat"
+    actionColor := color.new(color.red, 0)
+else if spyRisk
+    targetPos := 0
+    actionTitle := "ESCAPE"
+    actionDesc := "SPY Weak"
+    actionColor := color.new(color.red, 0)
+else if drawdownRisk
+    targetPos := 0
+    actionTitle := "STOP"
+    actionDesc := "Runaway"
+    actionColor := color.new(color.red, 0)
+else if not canEnter
+    targetPos := 0
+    actionTitle := "Cooling"
+    actionDesc := useAbs and coolingActive ? str.tostring(remainingDays) + "D lock left" : "RSI < " + str.tostring(cooldownRsi, "#.##")
+    actionColor := color.new(color.gray, 0)
+else
+    entry100 = disp >= entry100Disp
+    entry10 = qqqBull and t_close < t_ma200
+    specialEntry = dispSlope >= specialSlopeTh and disp <= specialDispMax and t_vol <= specialVolMax
+
+    targetPos := entry100 ? 100 : entry10 and specialEntry ? 100 : entry10 ? 10 : 0
+
+    if targetPos == 100
+        targetPos := disp >= exitDisp ? 0 :
+             disp >= trim5Disp ? 5 :
+             disp >= trim80Disp ? 80 :
+             disp >= trim90Disp ? 90 :
+             (not na(lastSignalEntryPrice) and t_close >= lastSignalEntryPrice * profitTrimRatio) ? 95 : 100
+
+    actionTitle := targetPos > 0 ? "HOLD" : "WAIT"
+    actionDesc := targetPos == 100 ? "FULL" :
+                  targetPos == 95 ? "TRIM95" :
+                  targetPos == 90 ? "TRIM90" :
+                  targetPos == 80 ? "TRIM80" :
+                  targetPos == 10 ? "QLD" :
+                  targetPos == 5 ? "MINI" : "-"
+    actionColor := targetPos >= 100 ? color.new(color.green, 0) :
+         targetPos >= 95 ? color.new(color.teal, 0) :
+         targetPos >= 80 ? color.new(color.aqua, 0) :
+         targetPos >= 10 ? color.new(color.orange, 0) :
+         targetPos > 0 ? color.new(color.yellow, 0) : color.new(color.gray, 0)
+
+prevPos = nz(targetPos[1], 0)
+enteredAny = prevPos == 0 and targetPos > 0
+exitedToCash = prevPos > 0 and targetPos == 0
+
+wasTqqqTier = prevPos >= 80
+wasQld = prevPos == 10
+toQld = targetPos == 10
+toCash = targetPos == 0
+
+meaningfulReduce = (wasTqqqTier and toQld) or (wasQld and toCash) or (wasTqqqTier and toCash)
+forceExitNow = exitedToCash and (volRisk or spyRisk or drawdownRisk)
+cooldownTrigger = meaningfulReduce or forceExitNow
+cooldownDone = hadForceExitState and absPass and rsiPass
+
+if enteredAny
+    lastSignalEntryPrice := t_close
+    hadForceExitState := false
+    lastForceExitTime := na
+else if cooldownTrigger
+    hadForceExitState := true
+    lastForceExitTime := t_time
+else if cooldownDone
+    hadForceExitState := false
+    lastForceExitTime := na
+else if targetPos == 0 and not hadForceExitState
+    lastSignalEntryPrice := na
+
+marketStatus = str.tostring(targetPos) + "%"
+
+plot(t_ma200, "TQQQ 200MA", color=color.blue, linewidth=2)
+
+bg = targetPos >= 100 ? color.new(color.green, 85) :
+     targetPos >= 95 ? color.new(color.teal, 85) :
+     targetPos >= 80 ? color.new(color.aqua, 85) :
+     targetPos > 0 ? color.new(color.orange, 85) : color.new(color.red, 85)
+bgcolor(bg)
+
+riskAny = isReady and (volRisk or spyRisk or drawdownRisk or not canEnter)
+safeState = isReady and not riskAny
+plotshape(riskAny, "Risk", shape.square, location.bottom, color.new(color.red, 50), size=size.small)
+plotshape(safeState, "Safe", shape.square, location.bottom, color.new(color.green, 50), size=size.small)
+
+posChanged = targetPos != prevPos
+if posChanged
+    prevName = prevPos == 100 ? "TQQQ" : prevPos == 10 ? "QLD" : prevPos == 5 ? "5%" : prevPos == 80 ? "80%" : prevPos == 90 ? "90%" : prevPos == 95 ? "95%" : prevPos == 0 ? "CASH" : str.tostring(prevPos) + "%"
+    curName = targetPos == 100 ? "TQQQ" : targetPos == 10 ? "QLD" : targetPos == 5 ? "5%" : targetPos == 80 ? "80%" : targetPos == 90 ? "90%" : targetPos == 95 ? "95%" : targetPos == 0 ? "CASH" : str.tostring(targetPos) + "%"
+    label.new(
+         bar_index,
+         targetPos > prevPos ? low - ta.atr(14) : high + ta.atr(14),
+         prevName + " -> " + curName + "\nVol: " + str.tostring(t_vol * 100, "#.##") + "%",
+         style = targetPos > prevPos ? label.style_label_up : label.style_label_down,
+         color = actionColor,
+         textcolor = color.white)
+
+alertcondition(posChanged, title="Position Changed", message="변형TQ: 포지션 변경")
+alertcondition(enteredAny, title="Entered Market", message="변형TQ: 현금에서 시장 진입")
+alertcondition(exitedToCash, title="Exited To Cash", message="변형TQ: 현금 전환")
+alertcondition(targetPos == 100 and prevPos != 100, title="Entered Full TQQQ", message="변형TQ: FULL TQQQ 진입")
+alertcondition(targetPos == 10 and prevPos != 10, title="Entered QLD", message="변형TQ: QLD 진입")
+alertcondition(volRisk, title="Volatility Risk", message="변형TQ: 변동성 리스크")
+alertcondition(spyRisk, title="SPY Risk", message="변형TQ: SPY 리스크")
+alertcondition(drawdownRisk, title="Drawdown Stop", message="변형TQ: 손절 조건")
+alertcondition(not canEnter and isReady, title="Cooling", message="변형TQ: Cooling 상태")
+
+var table tab = table.new(position.top_right, 2, 7, border_width=1)
+if barstate.islast
+    table.cell(tab, 0, 0, "Vol (" + str.tostring(thrVolInput) + "%)", bgcolor=color.gray, text_color=color.white)
+    table.cell(tab, 1, 0, str.tostring(t_vol * 100, "#.##") + "%", bgcolor=volRisk ? color.red : color.green, text_color=color.white)
+
+    table.cell(tab, 0, 1, "Final Pos", bgcolor=color.black, text_color=color.white)
+    table.cell(tab, 1, 1, marketStatus, bgcolor=actionColor, text_color=color.white)
+
+    table.cell(tab, 0, 2, "QQQ 3/161", bgcolor=color.black, text_color=color.white)
+    table.cell(tab, 1, 2, qqqBull ? "BULL" : "BEAR", bgcolor=qqqBull ? color.green : color.red, text_color=color.white)
+
+    table.cell(tab, 0, 3, "TQQQ 200MA", bgcolor=color.black, text_color=color.white)
+    table.cell(tab, 1, 3, tqqqBull ? "BULL" : "BEAR", bgcolor=tqqqBull ? color.green : color.red, text_color=color.white)
+
+    table.cell(tab, 0, 4, "SPY Risk", bgcolor=color.black, text_color=color.white)
+    table.cell(tab, 1, 4, spyRisk ? "RISK" : "SAFE", bgcolor=spyRisk ? color.red : color.green, text_color=color.white)
+
+    table.cell(tab, 0, 5, "Action", bgcolor=color.black, text_color=color.white)
+    table.cell(tab, 1, 5, actionTitle + " / " + actionDesc, bgcolor=actionColor, text_color=color.white)
+
+    table.cell(tab, 0, 6, "Cooldown", bgcolor=color.black, text_color=color.white)
+    table.cell(tab, 1, 6, coolingActive ? str.tostring(remainingDays) + "D left" : "OFF", bgcolor=coolingActive ? color.gray : color.green, text_color=color.white)

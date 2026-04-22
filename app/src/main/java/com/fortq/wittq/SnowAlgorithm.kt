@@ -43,7 +43,6 @@ object SnowStrategy {
         qHistory: List<Double>,
         tqCurrent: Double,
         qqCurrent: Double,
-        entryPrice: Double,
         entryDays: Int,
         cooldownDays: Int,
         avgPrice: Double,
@@ -77,16 +76,17 @@ object SnowStrategy {
         val isgc = (tq5 > tq220) && (tq5prev <= tq220prev) && !isCooldown
         val isbull = (tq5 > tq220) && !isCooldown
         val isbear = (tq5 < tq220) && (tq5prev > tq220prev)
-        val profitRate = if (entryPrice > 0) (lastclose - entryPrice) / entryPrice else 0.0
-        val dipRate = if (dipAvgPrice > 0) (lastclose - dipAvgPrice) / dipAvgPrice else 0.0
-        val slPrice = if (isbear) lastclose else 0.0
-        val signalPrice = if (isgc) lastclose else 0.0
         val dipPrice = if (diffqqq == -10.0) lastclose else 0.0
         val dip2price = if (diffqqq == -22.0) lastclose else 0.0
         val dipAvgPrice = if (dipPrice > 0 || dip2Price > 0) {
             val totalRatio = (if (dipPrice > 0) 20 else 0) + (if (dip2price > 0) 50 else 0)
             ((dipPrice * 20) + (dip2price * 50)) / totalRatio.coerceAtLeast(1)
         } else 0.0
+
+        val basisPrice = signalPrice
+        val profitRate = if (basisPrice > 0) (lastclose - basisPrice) / basisPrice else 0.0
+        val dipRate = if (dipAvgPrice > 0) (lastclose - dipAvgPrice) / dipAvgPrice else 0.0
+        val slPrice = if (isbear) lastclose else 0.0
 
 
         val isDip = diffqqq <= -10
@@ -107,7 +107,7 @@ object SnowStrategy {
         }
 
 
-        var tqRatio = if (entryPrice > 0) {
+        var tqRatio = if (basisPrice > 0) {
             when {
                 isbear -> 0
                 profitRate >= 3.50 -> 15
@@ -117,7 +117,7 @@ object SnowStrategy {
             }
         } else { buyRatio }
 
-        if (isbear && entryPrice > 0) tqRatio = 0
+        if (isbear && basisPrice > 0) tqRatio = 0
         else if (isgc) tqRatio = 100
 
         if (tqRatio in 1..<100) actionNote = "(매도)"
@@ -132,7 +132,7 @@ object SnowStrategy {
 
         var snowscore = when {
             isbull && tqRatio == 0 && profitRate >= 3.50 -> 4
-            isgc || isbull && entryPrice > 0 -> 3
+            isgc || isbull && basisPrice > 0 -> 3
             tqRatio in 1..99 -> 2
             buyRatio in 1..99 -> 1
             else -> 0
@@ -178,7 +178,7 @@ object SnowStrategy {
             dipPrice = dipPrice,
             dip2Price = dip2Price,
             dipAvgPrice = dipAvgPrice,
-            entryPrice = entryPrice,
+            entryPrice = basisPrice,
             slPrice = slPrice
         )
     }

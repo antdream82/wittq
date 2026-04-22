@@ -22,5 +22,6 @@
 
 <h3> 해당 위젯은 상황판처럼 출력 역할만 합니다</h3>
 
-다운로드 : <br>
-[.APK 다운로드](https://github.com/gam0706/wittq/raw/refs/heads/main/app/release/app-release.apk)
+APK 빌드 : <br>
+GitHub의 `Actions` 탭에서 `Build APK` 워크플로우를 실행하면 `app-debug-apk` artifact가 생성됩니다.<br>
+artifact 안의 `app-debug.apk`를 내려받아 안드로이드에 설치하면 됩니다.
