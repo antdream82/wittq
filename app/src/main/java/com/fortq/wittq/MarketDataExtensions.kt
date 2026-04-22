@@ -7,4 +7,4 @@ fun MarketData.safeTimestamps(): List<Long> = runCatching { timestamps }.getOrDe
 fun YahooResultData.safeTimestamps(): List<Long> = runCatching { timestamp }.getOrDefault(emptyList())
 
 fun YahooResultData.safeCloses(): List<Double?> =
-    runCatching { indicators.quote.firstOrNull()?.close }.getOrDefault(emptyList())
+    runCatching { indicators.quote.firstOrNull()?.close }.getOrNull() ?: emptyList()
