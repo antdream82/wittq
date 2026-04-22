@@ -50,6 +50,7 @@ interface YahooApiService {
 object StockApiEngine {
     private const val CACHE_PREFS = "YahooCache"
     private const val CACHE_PREFIX = "market_data_"
+    private const val CACHE_LAST_ERROR = "last_yahoo_error"
     private const val CACHE_TTL_MS = 15 * 60 * 1000L
     private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
 
@@ -71,6 +72,19 @@ object StockApiEngine {
             remove(cacheKey(symbol))
         }
     }
+
+    private fun setLastError(context: Context, message: String?) {
+        prefs(context).edit {
+            if (message.isNullOrBlank()) {
+                remove(CACHE_LAST_ERROR)
+            } else {
+                putString(CACHE_LAST_ERROR, message.take(180))
+            }
+        }
+    }
+
+    fun getLastError(context: Context): String? =
+        prefs(context).getString(CACHE_LAST_ERROR, null)
 
     private fun readCachedMarketData(context: Context, symbol: String): CachedMarketData? {
         val raw = prefs(context).getString(cacheKey(symbol), null) ?: return null
@@ -113,13 +127,18 @@ object StockApiEngine {
         val cached = readCachedMarketData(context, symbol)
         val cachedHasTimestamps = cached?.data?.timestamps?.isNotEmpty() == true
         if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
+            setLastError(context, null)
             Log.d("API_CACHE", "Cache hit for $symbol")
             return cached.data
         }
 
         return try {
             val response = service.getHistory(symbol)
-            val result = response.chart.result?.firstOrNull() ?: return null
+            val result = response.chart.result?.firstOrNull()
+            if (result == null) {
+                setLastError(context, "Yahoo $symbol fetch failed: empty response")
+                return null
+            }
             val closes = result.indicators.quote.firstOrNull()?.close.orEmpty()
             val pairedHistory = result.timestamp.zip(closes).mapNotNull { (ts, close) ->
                 close?.let { (ts * 1000L) to it }
@@ -132,15 +151,18 @@ object StockApiEngine {
             )
 
             writeCachedMarketData(context, symbol, data, now)
+            setLastError(context, null)
             Log.d("API_CACHE", "Fetched fresh Yahoo data for $symbol (${data.history.size} bars)")
             data
         } catch (e: Exception) {
             Log.e("API_ERROR", e.message.toString())
             if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_STALE_MS) {
+                setLastError(context, null)
                 Log.d("API_CACHE", "Using stale cache for $symbol")
                 cached.data
             } else {
                 removeCachedMarketData(context, symbol)
+                setLastError(context, "Yahoo $symbol fetch failed: ${e.message ?: "unknown error"}")
                 Log.d("API_CACHE", "Dropped unusable cache for $symbol")
                 null
             }

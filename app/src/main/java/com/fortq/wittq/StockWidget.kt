@@ -209,6 +209,7 @@ class StockWidget : GlanceAppWidget() {
 
         provideContent {
             val size = LocalSize.current
+            val lastError = StockApiEngine.getLastError(context)?.takeIf { it.isNotBlank() }
 
             if (resultdata != null) {
                 val (result, tChart, qChart) = resultdata
@@ -217,6 +218,15 @@ class StockWidget : GlanceAppWidget() {
                 Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Updating...", style = TextStyle(color = ColorProvider(Color.White)))
+                        if (lastError != null) {
+                            Text(
+                                lastError,
+                                style = TextStyle(
+                                    color = ColorProvider(Color.White.copy(alpha = 0.75f)),
+                                    fontSize = 9.sp
+                                )
+                            )
+                        }
                         Text(lastUpdate, style = TextStyle(color = ColorProvider(Color.White.copy(alpha = 0.6f)),
                             fontSize = 10.sp)
                         )
