@@ -23,5 +23,14 @@
 <h3> 해당 위젯은 상황판처럼 출력 역할만 합니다</h3>
 
 APK 빌드 : <br>
-GitHub의 `Actions` 탭에서 `Build APK` 워크플로우를 실행하면 `app-debug-apk` artifact가 생성됩니다.<br>
-artifact 안의 `app-debug.apk`를 내려받아 안드로이드에 설치하면 됩니다.
+GitHub의 `Actions` 탭에서 `Build APK` 워크플로우를 실행하면 `app-release-apk` artifact가 생성됩니다.<br>
+release APK는 고정 서명키로 빌드되므로, 이후 업데이트 설치가 가능합니다.<br>
+<br>
+GitHub Secrets 필요값:<br>
+`ANDROID_KEYSTORE_BASE64`<br>
+`KEYSTORE_PASSWORD`<br>
+`KEY_ALIAS`<br>
+`KEY_PASSWORD`<br>
+<br>
+첫 install은 기존 debug 서명 앱과 다르면 삭제 후 설치가 필요할 수 있습니다.<br>
+그 다음부터는 같은 release 서명이라 업데이트 설치가 됩니다.

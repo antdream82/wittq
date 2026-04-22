@@ -1,7 +1,22 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val keystoreProperties = Properties().apply {
+    val keystoreFile = rootProject.file("keystore.properties")
+    if (keystoreFile.exists()) {
+        keystoreFile.inputStream().use { load(it) }
+    }
+}
+
+val versionCodeValue = providers.gradleProperty("VERSION_CODE").orNull?.toIntOrNull()
+    ?: providers.environmentVariable("VERSION_CODE").orNull?.toIntOrNull()
+    ?: 1
+
+fun Properties.text(key: String): String? = getProperty(key)?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.fortq.wittq"
@@ -9,19 +24,39 @@ android {
         version = release(36)
     }
 
+    val hasReleaseSigning =
+        keystoreProperties.text("storeFile") != null &&
+            keystoreProperties.text("storePassword") != null &&
+            keystoreProperties.text("keyAlias") != null &&
+            keystoreProperties.text("keyPassword") != null
+
     defaultConfig {
         applicationId = "com.fortq.wittq"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
+        versionCode = versionCodeValue
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.text("storeFile")!!)
+                storePassword = keystoreProperties.text("storePassword")!!
+                keyAlias = keystoreProperties.text("keyAlias")!!
+                keyPassword = keystoreProperties.text("keyPassword")!!
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
