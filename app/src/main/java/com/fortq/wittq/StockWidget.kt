@@ -70,13 +70,9 @@ class StockWidget : GlanceAppWidget() {
         val userPosition = prefs.getString(KEY_USER_POSITION, "TQQQ") ?: "TQQQ"
 
         val savedSignalEntryPrice = prefs.getFloat(KEY_SIGNAL_ENTRY_PRICE, 0f)
-        val lastSignalEntryPrice = ((savedSignalEntryPrice * 10).toInt() / 10.0)
+        val persistedSignalEntryPrice = ((savedSignalEntryPrice * 10).toInt() / 10.0)
         val hadForceExit = prefs.getBoolean(KEY_HAD_FORCE_EXIT, false)
         val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
-
-        val lastRatio = prefs.getInt(KEY_LAST_RATIO, 0)
-        var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
-        val hasSavedSignalBasis = lastSignalEntryPrice > 0
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
@@ -95,43 +91,81 @@ class StockWidget : GlanceAppWidget() {
                     throw Exception("Data empty")
                 }
 
+                val recoveredState = if (persistedSignalEntryPrice <= 0.0) {
+                    recoverHistoricalSignalState(qData, tqData, spyData)
+                } else {
+                    null
+                }
+
+                val effectiveSignalEntryPrice = if (persistedSignalEntryPrice > 0) {
+                    persistedSignalEntryPrice
+                } else {
+                    recoveredState?.signalEntryPrice ?: 0.0
+                }
+                val effectiveHadForceExit = if (persistedSignalEntryPrice > 0) {
+                    hadForceExit
+                } else {
+                    recoveredState?.hadForceExit ?: false
+                }
+                val effectiveLastForceExitTime = if (persistedSignalEntryPrice > 0) {
+                    lastForceExitTime
+                } else {
+                    recoveredState?.lastForceExitTime ?: 0L
+                }
+                val effectiveLastRatio = if (persistedSignalEntryPrice > 0) {
+                    prefs.getInt(KEY_LAST_RATIO, 0)
+                } else {
+                    recoveredState?.lastRatio ?: 0
+                }
+                var signalDesc: String = prefs.getString(
+                    KEY_LAST_SIGNAL_DESC,
+                    recoveredState?.lastSignalDesc ?: "-"
+                ) ?: (recoveredState?.lastSignalDesc ?: "-")
+                val hasSignalBasis = effectiveSignalEntryPrice > 0
+
                 val result = TqqqAlgorithm.calculate(
                     qPrices = qHis,
                     tPrices = tHis,
                     spyPrices = spyHis,
                     userPosition,
-                    lastSignalEntryPrice,
-                    hadForceExit,
-                    lastForceExitTime,
+                    effectiveSignalEntryPrice,
+                    effectiveHadForceExit,
+                    effectiveLastForceExitTime,
                     System.currentTimeMillis()
                 )
 
                 val currentRatio = result.targetRatio
-                val enteredAny = currentRatio > 0 && !hasSavedSignalBasis
-                val exitedToCash = lastRatio > 0 && currentRatio == 0
-                val wasTqqqTier = lastRatio >= 80
-                val wasQld = lastRatio == 10
+                val enteredAny = effectiveLastRatio == 0 && currentRatio > 0 && !hasSignalBasis
+                val exitedToCash = effectiveLastRatio > 0 && currentRatio == 0
+                val wasTqqqTier = effectiveLastRatio >= 80
+                val wasQld = effectiveLastRatio == 10
                 val toQld = currentRatio == 10
                 val toCash = currentRatio == 0
                 val meaningfulReduce = (wasTqqqTier && toQld) || (wasQld && toCash) || (wasTqqqTier && toCash)
                 val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
                 val cooldownTrigger = meaningfulReduce || forceExitNow
-                val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
+                val cooldownDone = effectiveHadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
                 val now = System.currentTimeMillis()
                 val nextHadForceExit = when {
                     enteredAny -> false
                     cooldownTrigger -> true
                     cooldownDone -> false
-                    else -> hadForceExit
+                    else -> effectiveHadForceExit
                 }
 
-                if (lastRatio != currentRatio) {
-                    signalDesc = "${ratioLabel(lastRatio)} -> ${ratioLabel(currentRatio)}"
+                if (effectiveLastRatio != currentRatio) {
+                    signalDesc = "${ratioLabel(effectiveLastRatio)} -> ${ratioLabel(currentRatio)}"
                 }
 
                 prefs.edit {
                     putInt(KEY_LAST_RATIO, currentRatio)
                     putString(KEY_LAST_SIGNAL_DESC, signalDesc)
+
+                    if (persistedSignalEntryPrice <= 0.0 && recoveredState != null && recoveredState.signalEntryPrice > 0) {
+                        putFloat(KEY_SIGNAL_ENTRY_PRICE, recoveredState.signalEntryPrice.toFloat())
+                        putBoolean(KEY_HAD_FORCE_EXIT, recoveredState.hadForceExit)
+                        putLong(KEY_LAST_FORCE_EXIT_TIME, recoveredState.lastForceExitTime)
+                    }
 
                     if (enteredAny) {
                         putFloat(KEY_SIGNAL_ENTRY_PRICE, result.currentPrice.toFloat())
@@ -491,6 +525,128 @@ class StockWidget : GlanceAppWidget() {
             val endIdx = prices.size - count + i
             prices.subList((endIdx - period + 1).coerceAtLeast(0), endIdx + 1).average()
         }
+    }
+
+    private data class HistoricalSeries(
+        val timestamps: List<Long>,
+        val qPrices: List<Double>,
+        val tPrices: List<Double>,
+        val spyPrices: List<Double>
+    )
+
+    private data class RecoveredSignalState(
+        val signalEntryPrice: Double,
+        val hadForceExit: Boolean,
+        val lastForceExitTime: Long,
+        val lastRatio: Int,
+        val lastSignalDesc: String
+    )
+
+    private fun recoverHistoricalSignalState(
+        qData: MarketData,
+        tData: MarketData,
+        spyData: MarketData
+    ): RecoveredSignalState? {
+        val series = alignHistoricalSeries(qData, tData, spyData) ?: return null
+        if (series.timestamps.size < 200) return null
+
+        var signalEntryPrice = 0.0
+        var hadForceExit = false
+        var lastForceExitTime = 0L
+        var lastRatio = 0
+        var lastSignalDesc = "-"
+
+        for (index in series.timestamps.indices) {
+            val result = TqqqAlgorithm.calculate(
+                qPrices = series.qPrices.take(index + 1),
+                tPrices = series.tPrices.take(index + 1),
+                spyPrices = series.spyPrices.take(index + 1),
+                userPosition = "TQQQ",
+                lastSignalEntryPrice = signalEntryPrice,
+                hadForceExit = hadForceExit,
+                lastForceExitTime = lastForceExitTime,
+                currentTimeMs = series.timestamps[index]
+            )
+
+            val currentRatio = result.targetRatio
+            val enteredAny = lastRatio == 0 && currentRatio > 0
+            val exitedToCash = lastRatio > 0 && currentRatio == 0
+            val wasTqqqTier = lastRatio >= 80
+            val wasQld = lastRatio == 10
+            val toQld = currentRatio == 10
+            val toCash = currentRatio == 0
+            val meaningfulReduce = (wasTqqqTier && toQld) || (wasQld && toCash) || (wasTqqqTier && toCash)
+            val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
+            val cooldownTrigger = meaningfulReduce || forceExitNow
+            val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
+            val nextHadForceExit = when {
+                enteredAny -> false
+                cooldownTrigger -> true
+                cooldownDone -> false
+                else -> hadForceExit
+            }
+
+            if (lastRatio != currentRatio) {
+                lastSignalDesc = "${ratioLabel(lastRatio)} -> ${ratioLabel(currentRatio)}"
+            }
+
+            if (enteredAny) {
+                signalEntryPrice = result.currentPrice
+                hadForceExit = false
+                lastForceExitTime = 0L
+            } else if (cooldownTrigger) {
+                hadForceExit = true
+                lastForceExitTime = series.timestamps[index]
+            } else if (cooldownDone) {
+                hadForceExit = false
+                lastForceExitTime = 0L
+            }
+
+            if (currentRatio == 0 && !nextHadForceExit) {
+                signalEntryPrice = 0.0
+            }
+
+            lastRatio = currentRatio
+        }
+
+        return RecoveredSignalState(
+            signalEntryPrice = signalEntryPrice,
+            hadForceExit = hadForceExit,
+            lastForceExitTime = lastForceExitTime,
+            lastRatio = lastRatio,
+            lastSignalDesc = lastSignalDesc
+        )
+    }
+
+    private fun alignHistoricalSeries(
+        qData: MarketData,
+        tData: MarketData,
+        spyData: MarketData
+    ): HistoricalSeries? {
+        if (qData.history.isEmpty() || tData.history.isEmpty() || spyData.history.isEmpty()) return null
+        if (qData.timestamps.isEmpty() || tData.timestamps.isEmpty() || spyData.timestamps.isEmpty()) return null
+
+        val qMap = qData.timestamps.zip(qData.history).toMap()
+        val tMap = tData.timestamps.zip(tData.history).toMap()
+        val spyMap = spyData.timestamps.zip(spyData.history).toMap()
+
+        val commonTimes = qMap.keys
+            .intersect(tMap.keys)
+            .intersect(spyMap.keys)
+            .toList()
+            .sorted()
+
+        if (commonTimes.isEmpty()) return null
+
+        val qPrices = commonTimes.mapNotNull { qMap[it] }
+        val tPrices = commonTimes.mapNotNull { tMap[it] }
+        val spyPrices = commonTimes.mapNotNull { spyMap[it] }
+
+        if (qPrices.size != commonTimes.size || tPrices.size != commonTimes.size || spyPrices.size != commonTimes.size) {
+            return null
+        }
+
+        return HistoricalSeries(commonTimes, qPrices, tPrices, spyPrices)
     }
 
     private fun ratioLabel(ratio: Int): String = when (ratio) {

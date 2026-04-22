@@ -15,7 +15,8 @@ data class YahooResponse(val chart: YahooChart)
 data class YahooChart(val result: List<YahooResultData>?)
 data class YahooResultData(
     val meta: YahooMeta,
-    val indicators: YahooIndicators
+    val indicators: YahooIndicators,
+    val timestamp: List<Long> = emptyList()
 )
 data class YahooIndicators(val quote: List<YahooQuote>)
 data class YahooQuote(val close: List<Double?>)
@@ -28,7 +29,8 @@ data class YahooMeta(
 data class MarketData(
     val currentPrice: Double,
     val prevClose: Double,
-    val history: List<Double>
+    val history: List<Double>,
+    val timestamps: List<Long> = emptyList()
 )
 
 data class CachedMarketData(
@@ -88,10 +90,15 @@ object StockApiEngine {
         return try {
             val response = service.getHistory(symbol)
             val result = response.chart.result?.firstOrNull() ?: return null
+            val closes = result.indicators.quote.firstOrNull()?.close.orEmpty()
+            val pairedHistory = result.timestamp.zip(closes).mapNotNull { (ts, close) ->
+                close?.let { (ts * 1000L) to it }
+            }
             val data = MarketData(
                 currentPrice = result.meta.regularMarketPrice,
                 prevClose = result.meta.previousClose,
-                history = result.indicators.quote.first().close.filterNotNull()
+                history = pairedHistory.map { it.second },
+                timestamps = pairedHistory.map { it.first }
             )
 
             writeCachedMarketData(context, symbol, data, now)
