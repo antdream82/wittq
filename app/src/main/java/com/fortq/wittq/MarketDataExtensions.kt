@@ -1,10 +1,14 @@
 package com.fortq.wittq
 
-fun MarketData.safeHistory(): List<Double> = runCatching { history }.getOrDefault(emptyList())
+@Suppress("UNCHECKED_CAST")
+fun MarketData.safeHistory(): List<Double> = (history as? List<Double>) ?: emptyList()
 
-fun MarketData.safeTimestamps(): List<Long> = runCatching { timestamps }.getOrDefault(emptyList())
+@Suppress("UNCHECKED_CAST")
+fun MarketData.safeTimestamps(): List<Long> = (timestamps as? List<Long>) ?: emptyList()
 
-fun YahooResultData.safeTimestamps(): List<Long> = runCatching { timestamp }.getOrDefault(emptyList())
+@Suppress("UNCHECKED_CAST")
+fun YahooResultData.safeTimestamps(): List<Long> = (timestamp as? List<Long>) ?: emptyList()
 
+@Suppress("UNCHECKED_CAST")
 fun YahooResultData.safeCloses(): List<Double?> =
-    runCatching { indicators.quote.firstOrNull()?.close }.getOrNull() ?: emptyList()
+    ((indicators.quote.firstOrNull()?.close) as? List<Double?>) ?: emptyList()
