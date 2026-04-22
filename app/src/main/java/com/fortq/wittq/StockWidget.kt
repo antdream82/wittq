@@ -398,6 +398,14 @@ class StockWidget : GlanceAppWidget() {
                         }
 
                         Spacer(modifier = GlanceModifier.height((7 * factor).dp))
+                        Text(
+                            "TQQQ 200MA",
+                            style = TextStyle(
+                                color = ColorProvider(Color(0xFF8E8E93)),
+                                fontSize = (9 * factor).sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
                         tChart?.let {
                             Image(
                                 provider = ImageProvider(it),
@@ -406,6 +414,14 @@ class StockWidget : GlanceAppWidget() {
                             )
                         }
                         Spacer(modifier = GlanceModifier.height((6 * factor).dp))
+                        Text(
+                            "QQQ 3/161",
+                            style = TextStyle(
+                                color = ColorProvider(Color(0xFF8E8E93)),
+                                fontSize = (9 * factor).sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
                         qChart?.let {
                             Image(
                                 provider = ImageProvider(it),
