@@ -58,6 +58,11 @@ data class WidgetState(
     val savedPrice: Double
 )
 
+private data class RecoveredAGTState(
+    val entryPrice: Double,
+    val entryTime: Long
+)
+
 
 class AGTQWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(
@@ -79,8 +84,15 @@ class AGTQWidget : GlanceAppWidget() {
             try {
                 val marketData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
                 val history = marketData.history
-                val entryPrice = ((prefs.getFloat("agt_entry_price", 0.0f) * 10).toInt() / 10.0)
-                val entryTime = prefs.getLong("agt_entry_time", 0L)
+                val persistedEntryPrice = ((prefs.getFloat("agt_entry_price", 0.0f) * 10).toInt() / 10.0)
+                val persistedEntryTime = prefs.getLong("agt_entry_time", 0L)
+                val recoveredState = if (persistedEntryPrice <= 0.0) {
+                    recoverAGTState(history, marketData.timestamps, SavedPrice, userPos)
+                } else {
+                    null
+                }
+                val entryPrice = if (persistedEntryPrice > 0) persistedEntryPrice else recoveredState?.entryPrice ?: 0.0
+                val entryTime = if (persistedEntryPrice > 0) persistedEntryTime else recoveredState?.entryTime ?: 0L
                 val entryDays = if (entryTime > 0L) ((System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0
                 val res = AGTQStrategy.calc(
                     tqPrice = history, // [중요] 전략은 종가 기준
@@ -97,6 +109,11 @@ class AGTQWidget : GlanceAppWidget() {
                 )
 
                 prefs.edit {
+                            if (persistedEntryPrice <= 0.0 && recoveredState != null && recoveredState.entryPrice > 0) {
+                                putFloat("agt_entry_price", recoveredState.entryPrice.toFloat())
+                                putLong("agt_entry_time", recoveredState.entryTime)
+                            }
+
                             if (res.agtscore == 2 && entryPrice == 0.0) {
                                 // 신규 진입 조건 달성 시: 현재가와 현재 시간 저장
                                 putFloat("agt_entry_price", res.tqqqPrice.toFloat())
@@ -381,5 +398,39 @@ class AGTQWidget : GlanceAppWidget() {
             val endIdx = prices.size - count + i
             prices.subList((endIdx - period + 1).coerceAtLeast(0), endIdx + 1).average()
         }
+    }
+
+    private fun recoverAGTState(
+        history: List<Double>,
+        timestamps: List<Long>,
+        savedPrice: Double,
+        userPos: String
+    ): RecoveredAGTState? {
+        if (history.size < 4 || timestamps.size < 4) return null
+        val limit = minOf(history.size, timestamps.size)
+
+        var entryPrice = 0.0
+        var entryTime = 0L
+
+        for (i in 3 until limit) {
+            val prefix = history.take(i + 1)
+            val res = AGTQStrategy.calc(
+                tqPrice = prefix,
+                entryPrice = entryPrice,
+                entryDays = if (entryTime > 0L) ((timestamps[i] - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0,
+                avgPrice = savedPrice,
+                userPos = userPos
+            )
+
+            if (res.agtscore == 2 && entryPrice == 0.0) {
+                entryPrice = res.tqqqPrice
+                entryTime = timestamps[i]
+            } else if (res.isbear) {
+                entryPrice = 0.0
+                entryTime = 0L
+            }
+        }
+
+        return if (entryPrice > 0) RecoveredAGTState(entryPrice, entryTime) else null
     }
 }

@@ -57,6 +57,17 @@ class SnowWidget : GlanceAppWidget() {
         setOf(DpSize(300.dp, 100.dp), DpSize(412.dp, 150.dp))
     )
 
+    private data class RecoveredSnowState(
+        val signalPrice: Double,
+        val entryTime: Long,
+        val slPrice: Double,
+        val slTime: Long,
+        val dipPrice: Double,
+        val dipTime: Long,
+        val dip2Price: Double,
+        val dip2Time: Long
+    )
+
 
     @SuppressLint("RestrictedApi")
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -67,17 +78,26 @@ class SnowWidget : GlanceAppWidget() {
         val SavedPrice = ((prefs.getFloat("user_avg_price", 0.0f)*10).toInt() / 10.0)
         Log.d("WITTQ_DEBUG", "User_avg_price: $SavedPrice")
         val userPos = prefs.getString("user_position", "TQQQ") ?: "TQQQ"
-        val signalPrice = ((prefs.getFloat("snow_entry_price", 0f) * 10).toInt() / 10.0)
-        val entryTime = prefs.getLong("snow_entry_time", 0L)
+        val persistedSignalPrice = ((prefs.getFloat("snow_entry_price", 0f) * 10).toInt() / 10.0)
+        val persistedEntryTime = prefs.getLong("snow_entry_time", 0L)
+        val persistedSlTime = prefs.getLong("snow_stop_time", 0L)
+        val persistedSlPrice = ((prefs.getFloat("snow_stop_price", 0f) * 10).toInt() / 10.0)
+        val persistedDipTime = prefs.getLong("snow_dip_time", 0L)
+        val persistedDipPrice = ((prefs.getFloat("snow_dip_price", 0f) * 10).toInt() / 10.0)
+        val persistedDip2Time = prefs.getLong("snow_dip2_time", 0L)
+        val persistedDip2Price = ((prefs.getFloat("snow_dip2_price", 0f) * 10).toInt() / 10.0)
+
+        var signalPrice = persistedSignalPrice
+        var entryTime = persistedEntryTime
         val entryDays = if (entryTime > 0L) ((System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0
 
-        val slTime = prefs.getLong("snow_stop_time", 0L)
-        val slPrice = ((prefs.getFloat("snow_stop_price", 0f) * 10).toInt() / 10.0)
+        var slTime = persistedSlTime
+        var slPrice = persistedSlPrice
         val daysSinceSl = if (slTime >0L) ((System.currentTimeMillis() - slTime) / (1000 * 60 * 60 * 24)).toInt() else 5
-        val cooldownDays = maxOf(0, 5 - daysSinceSl)
+        var cooldownDays = maxOf(0, 5 - daysSinceSl)
 
-        val dipPrice = ((prefs.getFloat("snow_dip_price", 0f) * 10).toInt() / 10.0)
-        val dip2Price = ((prefs.getFloat("snow_dip2_price", 0f) * 10).toInt() / 10.0)
+        var dipPrice = persistedDipPrice
+        var dip2Price = persistedDip2Price
         val dipAvgPrice = if (dipPrice > 0 || dip2Price > 0) {
             val ddipRatio = (if (dipPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
             ((dipPrice * 20) + (dip2Price * 50)) / ddipRatio.coerceAtLeast(1)
@@ -90,6 +110,39 @@ class SnowWidget : GlanceAppWidget() {
                 val qqData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
                 val tHistory = tqData.history
                 val qHistory = qqData.history
+                val recoveredState = if (persistedSignalPrice <= 0.0) {
+                    recoverSnowState(
+                        tHistory = tHistory,
+                        tTimes = tqData.timestamps,
+                        qHistory = qHistory,
+                        qTimes = qqData.timestamps
+                    )
+                } else {
+                    null
+                }
+
+                if (persistedSignalPrice <= 0.0 && recoveredState != null && recoveredState.signalPrice > 0) {
+                    signalPrice = recoveredState.signalPrice
+                    entryTime = recoveredState.entryTime
+                }
+                if (persistedSlTime <= 0L && recoveredState != null && recoveredState.slPrice > 0) {
+                    slPrice = recoveredState.slPrice
+                    slTime = recoveredState.slTime
+                }
+                if (persistedDipTime <= 0L && recoveredState != null && recoveredState.dipPrice > 0) {
+                    dipPrice = recoveredState.dipPrice
+                }
+                if (persistedDip2Time <= 0L && recoveredState != null && recoveredState.dip2Price > 0) {
+                    dip2Price = recoveredState.dip2Price
+                }
+
+                val effectiveEntryDays = if (entryTime > 0L) ((System.currentTimeMillis() - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0
+                val effectiveCooldownDays = if (slTime > 0L) {
+                    val daysSinceEffectiveSl = ((System.currentTimeMillis() - slTime) / (1000 * 60 * 60 * 24)).toInt()
+                    maxOf(0, 5 - daysSinceEffectiveSl)
+                } else {
+                    0
+                }
 
                 val res = SnowStrategy.calc(
                     tHistory = tHistory,
@@ -97,10 +150,10 @@ class SnowWidget : GlanceAppWidget() {
                     tqCurrent = tqData.currentPrice,
                     qqCurrent = qqData.currentPrice,
                     signalPrice = signalPrice,
-                    entryDays = entryDays,
+                    entryDays = effectiveEntryDays,
                     avgPrice = SavedPrice,
                     usPos = userPos,
-                    cooldownDays = cooldownDays,
+                    cooldownDays = effectiveCooldownDays,
                     slPrice = slPrice,
                     dipPrice = dipPrice,
                     dip2Price = dip2Price,
@@ -127,7 +180,23 @@ class SnowWidget : GlanceAppWidget() {
                 )
 
                 prefs.edit {
-                            if (res.isgc && cooldownDays == 0) {
+                            if (persistedSignalPrice <= 0.0 && recoveredState != null && recoveredState.signalPrice > 0) {
+                                putFloat("snow_entry_price", recoveredState.signalPrice.toFloat())
+                                putLong("snow_entry_time", recoveredState.entryTime)
+                            }
+                            if (persistedSlTime <= 0L && recoveredState != null && recoveredState.slPrice > 0) {
+                                putFloat("snow_stop_price", recoveredState.slPrice.toFloat())
+                                putLong("snow_stop_time", recoveredState.slTime)
+                            }
+                            if (persistedDipTime <= 0L && recoveredState != null && recoveredState.dipPrice > 0) {
+                                putFloat("snow_dip_price", recoveredState.dipPrice.toFloat())
+                                putLong("snow_dip_time", recoveredState.dipTime)
+                            }
+                            if (persistedDip2Time <= 0L && recoveredState != null && recoveredState.dip2Price > 0) {
+                                putFloat("snow_dip2_price", recoveredState.dip2Price.toFloat())
+                                putLong("snow_dip2_time", recoveredState.dip2Time)
+                            }
+                            if (res.isgc && effectiveCooldownDays == 0) {
                                 if (signalPrice == 0.0) {
                                     putFloat("snow_entry_price", tHistory.last().toFloat())
                                     putLong("snow_entry_time", System.currentTimeMillis())
@@ -474,6 +543,82 @@ class SnowWidget : GlanceAppWidget() {
         return List(count) { i ->
             val endIdx = prices.size - count + i
             prices.subList((endIdx - period + 1).coerceAtLeast(0), endIdx + 1).average()
+        }
+    }
+
+    private fun recoverSnowState(
+        tHistory: List<Double>,
+        tTimes: List<Long>,
+        qHistory: List<Double>,
+        qTimes: List<Long>
+    ): RecoveredSnowState? {
+        if (tHistory.size < 220 || qHistory.size < 220) return null
+        val limit = minOf(tHistory.size, tTimes.size, qHistory.size, qTimes.size)
+        if (limit < 220) return null
+
+        var signalPrice = 0.0
+        var entryTime = 0L
+        var slPrice = 0.0
+        var slTime = 0L
+        var dipPrice = 0.0
+        var dipTime = 0L
+        var dip2Price = 0.0
+        var dip2Time = 0L
+
+        for (i in 219 until limit) {
+            val tPrefix = tHistory.take(i + 1)
+            val qPrefix = qHistory.take(i + 1)
+            val currentCooldownDays = if (slTime > 0L) {
+                val daysSinceSl = ((tTimes[i] - slTime) / (1000 * 60 * 60 * 24)).toInt()
+                maxOf(0, 5 - daysSinceSl)
+            } else {
+                0
+            }
+
+            val dipAvgPrice = if (dipPrice > 0 || dip2Price > 0) {
+                val ddipRatio = (if (dipPrice > 0) 20 else 0) + (if (dip2Price > 0) 50 else 0)
+                ((dipPrice * 20) + (dip2Price * 50)) / ddipRatio.coerceAtLeast(1)
+            } else 0.0
+
+            val res = SnowStrategy.calc(
+                tHistory = tPrefix,
+                qHistory = qPrefix,
+                tqCurrent = tPrefix.last(),
+                qqCurrent = qPrefix.last(),
+                entryDays = if (entryTime > 0L) ((tTimes[i] - entryTime) / (1000 * 60 * 60 * 24)).toInt() else 0,
+                cooldownDays = currentCooldownDays,
+                avgPrice = 0.0,
+                usPos = "TQQQ",
+                slPrice = slPrice,
+                dipPrice = dipPrice,
+                dip2Price = dip2Price,
+                dipAvgPrice = dipAvgPrice,
+                signalPrice = signalPrice
+            )
+
+            if (res.isgc && currentCooldownDays == 0) {
+                if (signalPrice == 0.0) {
+                    signalPrice = tPrefix.last()
+                    entryTime = tTimes[i]
+                }
+            } else if (res.dip2Price > 0) {
+                dip2Price = tPrefix.last()
+                dip2Time = tTimes[i]
+            } else if (res.dipPrice > 0) {
+                dipPrice = tPrefix.last()
+                dipTime = tTimes[i]
+            } else if (res.slPrice > 0) {
+                signalPrice = 0.0
+                entryTime = 0L
+                slPrice = tPrefix.last()
+                slTime = tTimes[i]
+            }
+        }
+
+        return if (signalPrice > 0 || slPrice > 0 || dipPrice > 0 || dip2Price > 0) {
+            RecoveredSnowState(signalPrice, entryTime, slPrice, slTime, dipPrice, dipTime, dip2Price, dip2Time)
+        } else {
+            null
         }
     }
 }

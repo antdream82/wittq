@@ -83,7 +83,7 @@ object StockApiEngine {
     suspend fun fetchMarketData(context: Context, symbol: String): MarketData? {
         val now = System.currentTimeMillis()
         val cached = readCachedMarketData(context, symbol)
-        if (cached != null && now - cached.savedAtMs <= CACHE_TTL_MS) {
+        if (cached != null && cached.data.timestamps.isNotEmpty() && now - cached.savedAtMs <= CACHE_TTL_MS) {
             return cached.data
         }
 
