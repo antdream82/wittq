@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.glance.appwidget.updateAll
 import androidx.work.*
-import java.util.concurrent.TimeUnit
 
 class AGTQUpdateWorker(
     private val context: Context,
@@ -18,8 +17,9 @@ class AGTQUpdateWorker(
             Result.success()
         } catch (e: Exception) {
             Log.e("WITTQ_WORKER", "Update failed: ${e.message}", e)
-            // 에러 발생 시 재시도하지 않고 성공으로 처리 (무한 루프 방지)
-            Result.success() // 실패 시 네트워크 상황 등에 따라 재시도
+            Result.success()
+        } finally {
+            AutoRefreshScheduler.scheduleAgtq(context, append = true)
         }
     }
 
@@ -27,21 +27,7 @@ class AGTQUpdateWorker(
         private const val WORK_NAME = "agtq_update_work"
 
         fun enqueue(context: Context) {
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED) // 인터넷 연결 시에만 작동
-                .build()
-
-            val request = PeriodicWorkRequestBuilder<AGTQUpdateWorker>(
-                60, TimeUnit.MINUTES // 시스템 최소 주기인 15분 설정
-            )
-                .setConstraints(constraints)
-                .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP, // 이미 작동 중이면 새로 만들지 않고 유지
-                request
-            )
+            AutoRefreshScheduler.scheduleAgtq(context, append = false)
         }
     }
 }
