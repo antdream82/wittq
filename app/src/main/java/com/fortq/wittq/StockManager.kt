@@ -5,11 +5,14 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.core.content.edit
 import com.google.gson.Gson
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.ConcurrentHashMap
 
 data class YahooResponse(val chart: YahooChart)
 data class YahooChart(val result: List<YahooResultData>?)
@@ -53,6 +56,7 @@ object StockApiEngine {
     private const val CACHE_LAST_ERROR = "last_yahoo_error"
     private const val CACHE_TTL_MS = 15 * 60 * 1000L
     private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
+    private val symbolLocks = ConcurrentHashMap<String, Mutex>()
 
     private val retrofit = Retrofit.Builder()
         .baseUrl("https://query1.finance.yahoo.com/")
@@ -118,55 +122,60 @@ object StockApiEngine {
         }
     }
 
+    private fun symbolLock(symbol: String): Mutex =
+        symbolLocks.getOrPut(symbol.uppercase()) { Mutex() }
+
     suspend fun fetchPrices(context: Context, symbol: String): List<Double> {
         return fetchMarketData(context, symbol)?.history ?: emptyList()
     }
 
     suspend fun fetchMarketData(context: Context, symbol: String): MarketData? {
-        val now = System.currentTimeMillis()
-        pruneCachedMarketData(context, now)
-        val cached = readCachedMarketData(context, symbol)
-        val cachedHasTimestamps = cached?.data?.safeTimestamps()?.isNotEmpty() == true
-        if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
-            setLastError(context, null)
-            Log.d("API_CACHE", "Cache hit for $symbol")
-            return cached.data
-        }
-
-        return try {
-            val response = service.getHistory(symbol)
-            val result = response.chart.result?.firstOrNull()
-            if (result == null) {
-                setLastError(context, "Yahoo $symbol fetch failed: empty response")
-                return null
-            }
-            val closes = result.safeCloses()
-            val timestamps = result.safeTimestamps()
-            val pairedHistory = timestamps.zip(closes).mapNotNull { (ts, close) ->
-                close?.let { (ts * 1000L) to it }
-            }
-            val data = MarketData(
-                currentPrice = result.meta.regularMarketPrice,
-                prevClose = result.meta.previousClose,
-                history = pairedHistory.map { it.second },
-                timestamps = pairedHistory.map { it.first }
-            )
-
-            writeCachedMarketData(context, symbol, data, now)
-            setLastError(context, null)
-            Log.d("API_CACHE", "Fetched fresh Yahoo data for $symbol (${data.history.size} bars)")
-            data
-        } catch (e: Exception) {
-            Log.e("API_ERROR", e.message.toString())
-            if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_STALE_MS) {
+        return symbolLock(symbol).withLock {
+            val now = System.currentTimeMillis()
+            pruneCachedMarketData(context, now)
+            val cached = readCachedMarketData(context, symbol)
+            val cachedHasTimestamps = cached?.data?.safeTimestamps()?.isNotEmpty() == true
+            if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
                 setLastError(context, null)
-                Log.d("API_CACHE", "Using stale cache for $symbol")
-                cached.data
-            } else {
-                removeCachedMarketData(context, symbol)
-                setLastError(context, "Yahoo $symbol fetch failed: ${e.message ?: "unknown error"}")
-                Log.d("API_CACHE", "Dropped unusable cache for $symbol")
-                null
+                Log.d("API_CACHE", "Cache hit for $symbol")
+                return@withLock cached.data
+            }
+
+            try {
+                val response = service.getHistory(symbol)
+                val result = response.chart.result?.firstOrNull()
+                if (result == null) {
+                    setLastError(context, "Yahoo $symbol fetch failed: empty response")
+                    return@withLock null
+                }
+                val closes = result.safeCloses()
+                val timestamps = result.safeTimestamps()
+                val pairedHistory = timestamps.zip(closes).mapNotNull { (ts, close) ->
+                    close?.let { (ts * 1000L) to it }
+                }
+                val data = MarketData(
+                    currentPrice = result.meta.regularMarketPrice,
+                    prevClose = result.meta.previousClose,
+                    history = pairedHistory.map { it.second },
+                    timestamps = pairedHistory.map { it.first }
+                )
+
+                writeCachedMarketData(context, symbol, data, now)
+                setLastError(context, null)
+                Log.d("API_CACHE", "Fetched fresh Yahoo data for $symbol (${data.history.size} bars)")
+                data
+            } catch (e: Exception) {
+                Log.e("API_ERROR", e.message.toString())
+                if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_STALE_MS) {
+                    setLastError(context, null)
+                    Log.d("API_CACHE", "Using stale cache for $symbol")
+                    cached.data
+                } else {
+                    removeCachedMarketData(context, symbol)
+                    setLastError(context, "Yahoo $symbol fetch failed: ${e.message ?: "unknown error"}")
+                    Log.d("API_CACHE", "Dropped unusable cache for $symbol")
+                    null
+                }
             }
         }
     }
