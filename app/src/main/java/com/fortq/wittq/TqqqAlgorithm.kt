@@ -24,6 +24,10 @@ data class AlgoResult(
     val isTqqqBullish: Boolean,
     val isQqqBullish: Boolean,
     val cooldownDaysLeft: Int = 0,
+    val vixClose: Double = 0.0,
+    val isVixLock: Boolean = false,
+    val vixCalmDays: Int = 0,
+    val isVixPanic: Boolean = false,
 )
 
 data class LinRegResult(
@@ -159,19 +163,26 @@ object TqqqAlgorithm {
     private const val PROFIT_TRIM_RATIO = 1.10
     private const val COOLDOWN_DAYS = 7
     private const val COOLDOWN_RSI = 43.0
+    private const val VIX_LOCK_TRIGGER = 49.0
+    private const val VIX_UNLOCK_LEVEL = 29.0
+    private const val VIX_UNLOCK_DAYS = 3
 
     fun calculate(
         qPrices: List<Double>,
         tPrices: List<Double>,
         spyPrices: List<Double>,
+        vixPrices: List<Double>,
         userPosition: String,
         lastSignalEntryPrice: Double = 0.0,
         hadForceExit: Boolean = false,
         lastForceExitTime: Long = 0L,
+        vixLock: Boolean = false,
+        vixCalmDays: Int = 0,
         currentTimeMs: Long = System.currentTimeMillis(),
     ): AlgoResult {
         val tqqqCurrent = tPrices.lastOrNull() ?: 0.0
         val spyCurrent = spyPrices.lastOrNull() ?: 0.0
+        val vixClose = vixPrices.lastOrNull() ?: 0.0
 
         val tqqqMA200 = tPrices.takeLast(200).average()
         val spyMA200 = spyPrices.takeLast(200).average()
@@ -200,12 +211,13 @@ object TqqqAlgorithm {
         val isReady = !qqqRsi.isNaN() &&
             qPrices.size >= 161 &&
             tPrices.size >= 200 &&
-            spyPrices.size >= 200
+            spyPrices.size >= 200 &&
+            vixPrices.isNotEmpty()
 
         val isTqqqBullish = disparityTQQQ >= ENTRY100_DISP
         val isQqqBullish = qqqMA3 > qqqMA161
         val isVolatilityRisk = vol20 >= VOL_RISK_LIMIT
-        val isSpyDisparityRisk = disparitySPY <= SPY_RISK_RATIO
+        val isSpyDisparityRisk = spyMA200 > 0 && (spyCurrent / spyMA200) <= SPY_RISK_RATIO
         val isDrawdownRisk = if (lastSignalEntryPrice > 0) {
             tqqqCurrent <= lastSignalEntryPrice * DRAWDOWN_STOP_RATIO
         } else false
@@ -219,6 +231,27 @@ object TqqqAlgorithm {
             kotlin.math.ceil(remainingMillis / (24.0 * 60.0 * 60.0 * 1000.0)).toInt()
         } else 0
         val canEnter = if (hadForceExit) !coolingActive && qqqRsi >= COOLDOWN_RSI else true
+        val vixPanicSell = isReady && vixClose >= VIX_LOCK_TRIGGER
+        var nextVixLock = vixLock
+        var nextVixCalmDays = vixCalmDays
+
+        if (isReady) {
+            if (vixClose >= VIX_LOCK_TRIGGER) {
+                nextVixLock = true
+                nextVixCalmDays = 0
+            } else if (nextVixLock) {
+                if (vixClose <= VIX_UNLOCK_LEVEL) {
+                    nextVixCalmDays += 1
+                } else {
+                    nextVixCalmDays = 0
+                }
+
+                if (nextVixCalmDays >= VIX_UNLOCK_DAYS) {
+                    nextVixLock = false
+                    nextVixCalmDays = 0
+                }
+            }
+        }
 
         when {
             // 0) 데이터 준비 부족
@@ -227,6 +260,13 @@ object TqqqAlgorithm {
                 actionTitle = "WAIT"
                 actionDesc = "Loading"
                 actionColor = 0xFF8E8E93
+            }
+            // 1) VIX panic sell and lock
+            vixPanicSell -> {
+                targetRatio = 0
+                actionTitle = "ESCAPE"
+                actionDesc = "VIX Panic"
+                actionColor = 0xFFFF453A
             }
             // 1) 변동성 Risk
             isVolatilityRisk -> {
@@ -264,11 +304,12 @@ object TqqqAlgorithm {
                 val specialEntry = (tqDisSlope >= SPECIAL_SLOPE_TH) &&
                     (disparityTQQQ <= SPECIAL_DISP_MAX) &&
                     (vol20 <= SPECIAL_VOL_MAX)
+                val allowScaleUp = !nextVixLock
 
                 // 기본 진입 비중 결정
                 targetRatio = when {
                     entry100 -> 100
-                    entry10 && specialEntry -> 100
+                    entry10 && specialEntry && allowScaleUp -> 100
                     entry10 -> 67
                     else -> 0
                 }
@@ -292,7 +333,7 @@ object TqqqAlgorithm {
                     95 -> "TRIM95"
                     90 -> "TRIM90"
                     80 -> "TRIM80"
-                    67 -> "2/3"
+                    67 -> if (nextVixLock) "2/3 / VIX LOCK" else "2/3"
                     5 -> "MINI"
                     else -> "-"
                 }
@@ -329,6 +370,10 @@ object TqqqAlgorithm {
             isTqqqBullish = isTqqqBullish,
             isQqqBullish = isQqqBullish,
             cooldownDaysLeft = cooldownDaysLeft,
+            vixClose = vixClose,
+            isVixLock = nextVixLock,
+            vixCalmDays = nextVixCalmDays,
+            isVixPanic = vixPanicSell,
         )
     }
 

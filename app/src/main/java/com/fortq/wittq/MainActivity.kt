@@ -123,6 +123,8 @@ fun PriceInputScreen() {
                                     putFloat("last_signal_entry_price", 0f)
                                     putBoolean("had_force_exit", false)
                                     putLong("last_force_exit_time", 0L)
+                                    putBoolean("vix_lock", false)
+                                    putInt("vix_calm_days", 0)
                                     putInt("last_ratio", 0)
                                     putString("last_signal_desc", "-")
                                 }

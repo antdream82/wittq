@@ -55,6 +55,8 @@ class StockWidget : GlanceAppWidget() {
         private const val KEY_USER_POSITION = "user_position"
         private const val KEY_LAST_RATIO = "last_ratio"
         private const val KEY_LAST_SIGNAL_DESC = "last_signal_desc"
+        private const val KEY_VIX_LOCK = "vix_lock"
+        private const val KEY_VIX_CALM_DAYS = "vix_calm_days"
     }
 
     // 3. SizeMode 적용: 기기별 다양한 4x2 사이즈에 대응
@@ -73,6 +75,8 @@ class StockWidget : GlanceAppWidget() {
         val persistedSignalEntryPrice = ((savedSignalEntryPrice * 10).toInt() / 10.0)
         val hadForceExit = prefs.getBoolean(KEY_HAD_FORCE_EXIT, false)
         val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
+        val vixLock = prefs.getBoolean(KEY_VIX_LOCK, false)
+        val vixCalmDays = prefs.getInt(KEY_VIX_CALM_DAYS, 0)
         var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
         var effectiveSignalEntryPrice = 0.0
 
@@ -81,14 +85,13 @@ class StockWidget : GlanceAppWidget() {
                 val tqData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
                 val qData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
                 val spyData = StockApiEngine.fetchMarketData(context, "SPY") ?: return@withContext null
+                val vixData = StockApiEngine.fetchMarketData(context, "^VIX") ?: return@withContext null
                 val tHis = tqData.safeHistory()
                 val qHis = qData.safeHistory()
                 val spyHis = spyData.safeHistory()
-                val tCur = tqData.currentPrice
-                val qCur = qData.currentPrice
-                val spyCur = spyData.currentPrice
+                val vixHis = vixData.safeHistory()
 
-                if (tHis.isEmpty() || qHis.isEmpty()) {
+                if (tHis.isEmpty() || qHis.isEmpty() || spyHis.isEmpty() || vixHis.isEmpty()) {
                     Log.e("WITTQ_DEBUG", "Price data is empty")
                     throw Exception("Data empty")
                 }
@@ -96,7 +99,7 @@ class StockWidget : GlanceAppWidget() {
                 val recoveredState = if (userPosition == "CASH") {
                     null
                 } else {
-                    recoverHistoricalSignalState(qData, tqData, spyData)
+                    recoverHistoricalSignalState(qData, tqData, spyData, vixData)
                 }
 
                 effectiveSignalEntryPrice = if (userPosition == "CASH") {
@@ -119,6 +122,16 @@ class StockWidget : GlanceAppWidget() {
                 } else {
                     recoveredState?.lastRatio ?: prefs.getInt(KEY_LAST_RATIO, 0)
                 }
+                val effectiveVixLock = if (userPosition == "CASH") {
+                    false
+                } else {
+                    recoveredState?.vixLock ?: vixLock
+                }
+                val effectiveVixCalmDays = if (userPosition == "CASH") {
+                    0
+                } else {
+                    recoveredState?.vixCalmDays ?: vixCalmDays
+                }
                 signalDesc = if (userPosition == "CASH") {
                     "-"
                 } else {
@@ -132,11 +145,14 @@ class StockWidget : GlanceAppWidget() {
                     qPrices = qHis,
                     tPrices = tHis,
                     spyPrices = spyHis,
-                    userPosition,
-                    effectiveSignalEntryPrice,
-                    effectiveHadForceExit,
-                    effectiveLastForceExitTime,
-                    System.currentTimeMillis()
+                    vixPrices = vixHis,
+                    userPosition = userPosition,
+                    lastSignalEntryPrice = effectiveSignalEntryPrice,
+                    hadForceExit = effectiveHadForceExit,
+                    lastForceExitTime = effectiveLastForceExitTime,
+                    vixLock = effectiveVixLock,
+                    vixCalmDays = effectiveVixCalmDays,
+                    currentTimeMs = System.currentTimeMillis()
                 )
 
                 val currentRatio = result.targetRatio
@@ -172,6 +188,11 @@ class StockWidget : GlanceAppWidget() {
                         putLong(KEY_LAST_FORCE_EXIT_TIME, recoveredState.lastForceExitTime)
                     }
 
+                    if (recoveredState != null && userPosition != "CASH") {
+                        putBoolean(KEY_VIX_LOCK, recoveredState.vixLock)
+                        putInt(KEY_VIX_CALM_DAYS, recoveredState.vixCalmDays)
+                    }
+
                     if (enteredAny) {
                         putFloat(KEY_SIGNAL_ENTRY_PRICE, result.currentPrice.toFloat())
                         putBoolean(KEY_HAD_FORCE_EXIT, false)
@@ -183,6 +204,9 @@ class StockWidget : GlanceAppWidget() {
                         putBoolean(KEY_HAD_FORCE_EXIT, false)
                         putLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
                     }
+
+                    putBoolean(KEY_VIX_LOCK, result.isVixLock)
+                    putInt(KEY_VIX_CALM_DAYS, result.vixCalmDays)
 
                     if (currentRatio == 0 && !nextHadForceExit) {
                         putFloat(KEY_SIGNAL_ENTRY_PRICE, 0f)
@@ -330,6 +354,7 @@ class StockWidget : GlanceAppWidget() {
 
         val isCooling = res.actionTitle == "Cooling"
         val isSpyRisk = res.actionTitle == "ESCAPE" && res.actionDesc == "SPY Weak"
+        val isVixRisk = res.isVixPanic || res.isVixLock
         val qqqState = if (res.isQqqBullish) "BULL" else "BEAR"
         val tqqqState = if (res.isTqqqBullish) "BULL" else "BEAR"
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
@@ -548,6 +573,17 @@ class StockWidget : GlanceAppWidget() {
                                     )
                                 )
                             }
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text("VIX", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(
+                                    if (res.vixClose > 0) String.format("%.1f", res.vixClose) else "NA",
+                                    style = TextStyle(
+                                        color = ColorProvider(if (isVixRisk) Color(0xFFFF453A) else Color.White),
+                                        fontSize = valueSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
                         }
 
                         Spacer(modifier = GlanceModifier.height((10 * factor).dp))
@@ -592,7 +628,8 @@ class StockWidget : GlanceAppWidget() {
         val timestamps: List<Long>,
         val qPrices: List<Double>,
         val tPrices: List<Double>,
-        val spyPrices: List<Double>
+        val spyPrices: List<Double>,
+        val vixPrices: List<Double>
     )
 
     private data class RecoveredSignalState(
@@ -600,15 +637,18 @@ class StockWidget : GlanceAppWidget() {
         val hadForceExit: Boolean,
         val lastForceExitTime: Long,
         val lastRatio: Int,
-        val lastSignalDesc: String
+        val lastSignalDesc: String,
+        val vixLock: Boolean,
+        val vixCalmDays: Int
     )
 
     private fun recoverHistoricalSignalState(
         qData: MarketData,
         tData: MarketData,
-        spyData: MarketData
+        spyData: MarketData,
+        vixData: MarketData
     ): RecoveredSignalState? {
-        val series = alignHistoricalSeries(qData, tData, spyData) ?: return null
+        val series = alignHistoricalSeries(qData, tData, spyData, vixData) ?: return null
         if (series.timestamps.size < 200) return null
 
         var signalEntryPrice = 0.0
@@ -616,16 +656,21 @@ class StockWidget : GlanceAppWidget() {
         var lastForceExitTime = 0L
         var lastRatio = 0
         var lastSignalDesc = "-"
+        var vixLock = false
+        var vixCalmDays = 0
 
         for (index in series.timestamps.indices) {
             val result = TqqqAlgorithm.calculate(
                 qPrices = series.qPrices.take(index + 1),
                 tPrices = series.tPrices.take(index + 1),
                 spyPrices = series.spyPrices.take(index + 1),
+                vixPrices = series.vixPrices.take(index + 1),
                 userPosition = "TQQQ",
                 lastSignalEntryPrice = signalEntryPrice,
                 hadForceExit = hadForceExit,
                 lastForceExitTime = lastForceExitTime,
+                vixLock = vixLock,
+                vixCalmDays = vixCalmDays,
                 currentTimeMs = series.timestamps[index]
             )
 
@@ -667,6 +712,8 @@ class StockWidget : GlanceAppWidget() {
                 signalEntryPrice = 0.0
             }
 
+            vixLock = result.isVixLock
+            vixCalmDays = result.vixCalmDays
             lastRatio = currentRatio
         }
 
@@ -675,32 +722,39 @@ class StockWidget : GlanceAppWidget() {
             hadForceExit = hadForceExit,
             lastForceExitTime = lastForceExitTime,
             lastRatio = lastRatio,
-            lastSignalDesc = lastSignalDesc
+            lastSignalDesc = lastSignalDesc,
+            vixLock = vixLock,
+            vixCalmDays = vixCalmDays
         )
     }
 
     private fun alignHistoricalSeries(
         qData: MarketData,
         tData: MarketData,
-        spyData: MarketData
+        spyData: MarketData,
+        vixData: MarketData
     ): HistoricalSeries? {
         val qHistory = qData.safeHistory()
         val tHistory = tData.safeHistory()
         val spyHistory = spyData.safeHistory()
+        val vixHistory = vixData.safeHistory()
         val qTimestamps = qData.safeTimestamps()
         val tTimestamps = tData.safeTimestamps()
         val spyTimestamps = spyData.safeTimestamps()
+        val vixTimestamps = vixData.safeTimestamps()
 
-        if (qHistory.isEmpty() || tHistory.isEmpty() || spyHistory.isEmpty()) return null
-        if (qTimestamps.isEmpty() || tTimestamps.isEmpty() || spyTimestamps.isEmpty()) return null
+        if (qHistory.isEmpty() || tHistory.isEmpty() || spyHistory.isEmpty() || vixHistory.isEmpty()) return null
+        if (qTimestamps.isEmpty() || tTimestamps.isEmpty() || spyTimestamps.isEmpty() || vixTimestamps.isEmpty()) return null
 
         val qMap = qTimestamps.zip(qHistory).toMap()
         val tMap = tTimestamps.zip(tHistory).toMap()
         val spyMap = spyTimestamps.zip(spyHistory).toMap()
+        val vixMap = vixTimestamps.zip(vixHistory).toMap()
 
         val commonTimes = qMap.keys
             .intersect(tMap.keys)
             .intersect(spyMap.keys)
+            .intersect(vixMap.keys)
             .toList()
             .sorted()
 
@@ -709,12 +763,18 @@ class StockWidget : GlanceAppWidget() {
         val qPrices = commonTimes.mapNotNull { qMap[it] }
         val tPrices = commonTimes.mapNotNull { tMap[it] }
         val spyPrices = commonTimes.mapNotNull { spyMap[it] }
+        val vixPrices = commonTimes.mapNotNull { vixMap[it] }
 
-        if (qPrices.size != commonTimes.size || tPrices.size != commonTimes.size || spyPrices.size != commonTimes.size) {
+        if (
+            qPrices.size != commonTimes.size ||
+            tPrices.size != commonTimes.size ||
+            spyPrices.size != commonTimes.size ||
+            vixPrices.size != commonTimes.size
+        ) {
             return null
         }
 
-        return HistoricalSeries(commonTimes, qPrices, tPrices, spyPrices)
+        return HistoricalSeries(commonTimes, qPrices, tPrices, spyPrices, vixPrices)
     }
 
     private fun ratioLabel(ratio: Int): String = when (ratio) {
