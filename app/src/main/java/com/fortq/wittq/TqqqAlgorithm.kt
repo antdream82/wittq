@@ -149,21 +149,21 @@ object AGTQStrategy {
 
 
 object TqqqAlgorithm {
-    private const val VOL_RISK_LIMIT = 5.8
-    private const val SPY_RISK_RATIO = 0.974
-    private const val DRAWDOWN_STOP_RATIO = 0.942
+    private const val VOL_RISK_LIMIT = 5.5
+    private const val SPY_RISK_RATIO = 1.0025
+    private const val DRAWDOWN_STOP_RATIO = 0.9425
     private const val ENTRY100_DISP = 101.0
     private const val SPECIAL_SLOPE_TH = 0.11
     private const val SPECIAL_DISP_MAX = 98.8
     private const val SPECIAL_VOL_MAX = 6.0
-    private const val TRIM90_DISP = 139.0
-    private const val TRIM80_DISP = 146.0
-    private const val TRIM5_DISP = 149.0
-    private const val EXIT_DISP = 151.0
-    private const val PROFIT_TRIM_RATIO = 1.10
-    private const val COOLDOWN_DAYS = 7
+    private const val TRIM90_DISP = 127.5
+    private const val TRIM80_DISP = 128.5
+    private const val TRIM5_DISP = 142.0
+    private const val EXIT_DISP = 155.5
+    private const val PROFIT_TRIM_RATIO = 1.07
+    private const val COOLDOWN_DAYS = 10
     private const val COOLDOWN_RSI = 43.0
-    private const val VIX_LOCK_TRIGGER = 49.0
+    private const val VIX_LOCK_TRIGGER = 48.0
     private const val VIX_UNLOCK_LEVEL = 29.0
     private const val VIX_UNLOCK_DAYS = 3
 

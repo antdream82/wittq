@@ -49,6 +49,7 @@ class UpdateActionCallback : ActionCallback {
 
 class StockWidget : GlanceAppWidget() {
     companion object {
+        private const val VOL_RISK_LIMIT = 5.5
         private const val KEY_SIGNAL_ENTRY_PRICE = "last_signal_entry_price"
         private const val KEY_HAD_FORCE_EXIT = "had_force_exit"
         private const val KEY_LAST_FORCE_EXIT_TIME = "last_force_exit_time"
@@ -468,7 +469,7 @@ class StockWidget : GlanceAppWidget() {
                                 Text("VOL", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
                                     String.format("%.2f%%", res.vol20),
-                                    style = TextStyle(color = ColorProvider(if (res.vol20 >= 5.8) Color(0xFFFF453A) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                    style = TextStyle(color = ColorProvider(if (res.vol20 >= VOL_RISK_LIMIT) Color(0xFFFF453A) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
                                 )
                             }
                             Column(modifier = GlanceModifier.defaultWeight()) {
