@@ -530,6 +530,16 @@ class StockWidget : GlanceAppWidget() {
                                     actionDisplayDesc,
                                     style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = (9 * factor).sp)
                                 )
+                                if (lastSignal != "-") {
+                                    Text(
+                                        "LAST $lastSignal",
+                                        style = TextStyle(
+                                            color = ColorProvider(Color.White),
+                                            fontSize = (9 * factor).sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
                             }
                             Column(modifier = GlanceModifier.defaultWeight()) {
                                 Text("Cooldown", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
@@ -597,16 +607,6 @@ class StockWidget : GlanceAppWidget() {
                                 )
                             }
                         }
-
-                        Spacer(modifier = GlanceModifier.height((10 * factor).dp))
-                        Text(
-                            "LAST MOVE / $lastSignal",
-                            style = TextStyle(
-                                color = ColorProvider(Color(0xFF8E8E93)),
-                                fontSize = (9 * factor).sp
-                            )
-                        )
-
                         Spacer(modifier = GlanceModifier.height((8 * factor).dp))
                         Box(
                             modifier = GlanceModifier
