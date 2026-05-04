@@ -368,10 +368,12 @@ class StockWidget : GlanceAppWidget() {
         val qqqState = if (res.isQqqBullish) "BULL" else "BEAR"
         val tqqqState = if (res.isTqqqBullish) "BULL" else "BEAR"
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
-        val positionLabel = when (res.targetRatio) {
-            0 -> "CASH"
-            67 -> "TQQQ 67%"
-            else -> "TQQQ"
+        val positionLabel = positionLabelForRatio(res.targetRatio)
+        val actionDisplayTitle = if (res.targetRatio > 0 && res.actionTitle == "HOLD") "TARGET" else res.actionTitle
+        val actionDisplayDesc = if (res.targetRatio > 0 && res.actionTitle == "HOLD") {
+            positionLabel
+        } else {
+            res.actionDesc
         }
         val cooldownState = when {
             isCooling && res.cooldownDaysLeft > 0 -> "${res.cooldownDaysLeft}D left"
@@ -521,11 +523,11 @@ class StockWidget : GlanceAppWidget() {
                             Column(modifier = GlanceModifier.defaultWeight()) {
                                 Text("ACTION", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
-                                    res.actionTitle,
+                                    actionDisplayTitle,
                                     style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = actionSize, fontWeight = FontWeight.Bold)
                                 )
                                 Text(
-                                    res.actionDesc,
+                                    actionDisplayDesc,
                                     style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = (9 * factor).sp)
                                 )
                             }
@@ -794,6 +796,17 @@ class StockWidget : GlanceAppWidget() {
         80 -> "80%"
         67 -> "2/3"
         5 -> "5%"
+        0 -> "CASH"
+        else -> "${ratio}%"
+    }
+
+    private fun positionLabelForRatio(ratio: Int): String = when (ratio) {
+        100 -> "TQQQ 100%"
+        95 -> "TQQQ 95%"
+        90 -> "TQQQ 90%"
+        80 -> "TQQQ 80%"
+        67 -> "TQQQ 67%"
+        5 -> "TQQQ 5%"
         0 -> "CASH"
         else -> "${ratio}%"
     }
