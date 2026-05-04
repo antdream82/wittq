@@ -252,8 +252,7 @@ class StockWidget : GlanceAppWidget() {
                     lastUpdate,
                     size,
                     signalDesc,
-                    effectiveSignalEntryPrice,
-                    effectiveLastRatio
+                    effectiveSignalEntryPrice
                 )
             } else {
                 val fallbackError = lastError ?: "Widget update failed"
@@ -357,8 +356,7 @@ class StockWidget : GlanceAppWidget() {
         updateTime: String,
         size: DpSize,
         lastSignal: String,
-        signalEntryPrice: Double,
-        previousRatio: Int
+        signalEntryPrice: Double
     ) {
         val factor = (size.width.value / 410f).coerceIn(0.6f, 1.0f)
         val hpadding = (40 * factor).dp
@@ -370,8 +368,6 @@ class StockWidget : GlanceAppWidget() {
         val qqqState = if (res.isQqqBullish) "BULL" else "BEAR"
         val tqqqState = if (res.isTqqqBullish) "BULL" else "BEAR"
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
-        val previousPositionLabel = positionLabelForRatio(previousRatio)
-        val currentPositionLabel = positionLabelForRatio(res.targetRatio)
         val positionLabel = when (res.targetRatio) {
             0 -> "CASH"
             67 -> "TQQQ 67%"
@@ -532,21 +528,6 @@ class StockWidget : GlanceAppWidget() {
                                     res.actionDesc,
                                     style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = (9 * factor).sp)
                                 )
-                                Text(
-                                    "PREV / NOW",
-                                    style = TextStyle(
-                                        color = ColorProvider(grayColor),
-                                        fontSize = (8 * factor).sp
-                                    )
-                                )
-                                Text(
-                                    "$previousPositionLabel -> $currentPositionLabel",
-                                    style = TextStyle(
-                                        color = ColorProvider(Color.White),
-                                        fontSize = (9 * factor).sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
                             }
                             Column(modifier = GlanceModifier.defaultWeight()) {
                                 Text("Cooldown", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
@@ -617,7 +598,7 @@ class StockWidget : GlanceAppWidget() {
 
                         Spacer(modifier = GlanceModifier.height((10 * factor).dp))
                         Text(
-                            "CHANGE / $lastSignal",
+                            "LAST MOVE / $lastSignal",
                             style = TextStyle(
                                 color = ColorProvider(Color(0xFF8E8E93)),
                                 fontSize = (9 * factor).sp
@@ -817,14 +798,4 @@ class StockWidget : GlanceAppWidget() {
         else -> "${ratio}%"
     }
 
-    private fun positionLabelForRatio(ratio: Int): String = when (ratio) {
-        100 -> "TQQQ 100%"
-        95 -> "TQQQ 95%"
-        90 -> "TQQQ 90%"
-        80 -> "TQQQ 80%"
-        67 -> "TQQQ 67%"
-        5 -> "TQQQ 5%"
-        0 -> "CASH"
-        else -> "$ratio%"
-    }
 }
