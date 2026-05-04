@@ -370,13 +370,14 @@ class StockWidget : GlanceAppWidget() {
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
         val hasLastMove = lastSignal != "-"
         val targetSubLabel = if (res.targetRatio > 0) "TQQQ exposure" else "No position"
+        val actionLabel = if (res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove) "CHANGE" else "ACTION"
         val actionDisplayTitle = when {
-            res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove -> "MOVE"
+            res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove -> lastSignal
             res.targetRatio > 0 && res.actionTitle == "HOLD" -> "TARGET"
             else -> res.actionTitle
         }
         val actionDisplayDesc = when {
-            res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove -> lastSignal
+            res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove -> ""
             res.targetRatio > 0 && res.actionTitle == "HOLD" -> "No change"
             else -> res.actionDesc
         }
@@ -526,15 +527,17 @@ class StockWidget : GlanceAppWidget() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = GlanceModifier.defaultWeight()) {
-                                Text("ACTION", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text(actionLabel, style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
                                     actionDisplayTitle,
                                     style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = actionSize, fontWeight = FontWeight.Bold)
                                 )
-                                Text(
-                                    actionDisplayDesc,
-                                    style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = (9 * factor).sp)
-                                )
+                                if (actionDisplayDesc.isNotEmpty()) {
+                                    Text(
+                                        actionDisplayDesc,
+                                        style = TextStyle(color = ColorProvider(Color(res.actionColor)), fontSize = (9 * factor).sp)
+                                    )
+                                }
                             }
                             Column(modifier = GlanceModifier.defaultWeight()) {
                                 Text("Cooldown", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
