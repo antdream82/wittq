@@ -80,6 +80,7 @@ class StockWidget : GlanceAppWidget() {
         val vixCalmDays = prefs.getInt(KEY_VIX_CALM_DAYS, 0)
         var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
         var effectiveSignalEntryPrice = 0.0
+        var effectiveLastRatio = 0
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
@@ -118,7 +119,7 @@ class StockWidget : GlanceAppWidget() {
                 } else {
                     recoveredState?.lastForceExitTime ?: lastForceExitTime
                 }
-                val effectiveLastRatio = if (userPosition == "CASH") {
+                effectiveLastRatio = if (userPosition == "CASH") {
                     0
                 } else {
                     recoveredState?.lastRatio ?: prefs.getInt(KEY_LAST_RATIO, 0)
