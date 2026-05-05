@@ -86,14 +86,15 @@ class StockWidget : GlanceAppWidget() {
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
+                val nowMs = System.currentTimeMillis()
                 val tqData = StockApiEngine.fetchMarketData(context, "TQQQ") ?: return@withContext null
                 val qData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
                 val spyData = StockApiEngine.fetchMarketData(context, "SPY") ?: return@withContext null
                 val vixData = StockApiEngine.fetchMarketData(context, "^VIX") ?: return@withContext null
-                val tHis = tqData.safeHistory()
-                val qHis = qData.safeHistory()
-                val spyHis = spyData.safeHistory()
-                val vixHis = vixData.safeHistory()
+                val tHis = tqData.safeClosedHistory(nowMs)
+                val qHis = qData.safeClosedHistory(nowMs)
+                val spyHis = spyData.safeClosedHistory(nowMs)
+                val vixHis = vixData.safeClosedHistory(nowMs)
 
                 if (tHis.isEmpty() || qHis.isEmpty() || spyHis.isEmpty() || vixHis.isEmpty()) {
                     Log.e("WITTQ_DEBUG", "Price data is empty")
@@ -103,7 +104,7 @@ class StockWidget : GlanceAppWidget() {
                 val recoveredState = if (userPosition == "CASH") {
                     null
                 } else {
-                    recoverHistoricalSignalState(qData, tqData, spyData, vixData)
+                    recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs)
                 }
 
                 effectiveSignalEntryPrice = if (userPosition == "CASH") {
@@ -123,10 +124,9 @@ class StockWidget : GlanceAppWidget() {
                 }
                 effectiveLastRatio = if (userPosition == "CASH") {
                     0
-                } else if (hasPersistedLastRatio) {
-                    prefs.getInt(KEY_LAST_RATIO, 0)
                 } else {
-                    recoveredState?.lastRatio ?: 0
+                    recoveredState?.lastRatio
+                        ?: if (hasPersistedLastRatio) prefs.getInt(KEY_LAST_RATIO, 0) else 0
                 }
                 val effectiveVixLock = if (userPosition == "CASH") {
                     false
@@ -140,10 +140,9 @@ class StockWidget : GlanceAppWidget() {
                 }
                 signalDesc = if (userPosition == "CASH") {
                     "-"
-                } else if (hasPersistedSignalDesc) {
-                    prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
                 } else {
-                    recoveredState?.lastSignalDesc ?: "-"
+                    recoveredState?.lastSignalDesc
+                        ?: if (hasPersistedSignalDesc) prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-" else "-"
                 }
                 val hasSignalBasis = effectiveSignalEntryPrice > 0
 
@@ -158,7 +157,7 @@ class StockWidget : GlanceAppWidget() {
                     lastForceExitTime = effectiveLastForceExitTime,
                     vixLock = effectiveVixLock,
                     vixCalmDays = effectiveVixCalmDays,
-                    currentTimeMs = System.currentTimeMillis()
+                    currentTimeMs = nowMs
                 )
 
                 val currentRatio = result.targetRatio
@@ -660,9 +659,10 @@ class StockWidget : GlanceAppWidget() {
         qData: MarketData,
         tData: MarketData,
         spyData: MarketData,
-        vixData: MarketData
+        vixData: MarketData,
+        nowMs: Long = System.currentTimeMillis()
     ): RecoveredSignalState? {
-        val series = alignHistoricalSeries(qData, tData, spyData, vixData) ?: return null
+        val series = alignHistoricalSeries(qData, tData, spyData, vixData, nowMs) ?: return null
         if (series.timestamps.size < 200) return null
 
         var signalEntryPrice = 0.0
@@ -746,16 +746,17 @@ class StockWidget : GlanceAppWidget() {
         qData: MarketData,
         tData: MarketData,
         spyData: MarketData,
-        vixData: MarketData
+        vixData: MarketData,
+        nowMs: Long = System.currentTimeMillis()
     ): HistoricalSeries? {
-        val qHistory = qData.safeHistory()
-        val tHistory = tData.safeHistory()
-        val spyHistory = spyData.safeHistory()
-        val vixHistory = vixData.safeHistory()
-        val qTimestamps = qData.safeTimestamps()
-        val tTimestamps = tData.safeTimestamps()
-        val spyTimestamps = spyData.safeTimestamps()
-        val vixTimestamps = vixData.safeTimestamps()
+        val qHistory = qData.safeClosedHistory(nowMs)
+        val tHistory = tData.safeClosedHistory(nowMs)
+        val spyHistory = spyData.safeClosedHistory(nowMs)
+        val vixHistory = vixData.safeClosedHistory(nowMs)
+        val qTimestamps = qData.safeClosedTimestamps(nowMs)
+        val tTimestamps = tData.safeClosedTimestamps(nowMs)
+        val spyTimestamps = spyData.safeClosedTimestamps(nowMs)
+        val vixTimestamps = vixData.safeClosedTimestamps(nowMs)
 
         if (qHistory.isEmpty() || tHistory.isEmpty() || spyHistory.isEmpty() || vixHistory.isEmpty()) return null
         if (qTimestamps.isEmpty() || tTimestamps.isEmpty() || spyTimestamps.isEmpty() || vixTimestamps.isEmpty()) return null
