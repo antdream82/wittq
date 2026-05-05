@@ -99,51 +99,17 @@ class StockWidget : GlanceAppWidget() {
                     throw Exception("Data empty")
                 }
 
-                val recoveredState = if (userPosition == "CASH") {
-                    null
-                } else {
-                    recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs)
-                }
+                val recoveredState = recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs)
 
-                effectiveSignalEntryPrice = if (userPosition == "CASH") {
-                    0.0
-                } else {
-                    recoveredState?.signalEntryPrice ?: persistedSignalEntryPrice
-                }
-                val effectiveHadForceExit = if (userPosition == "CASH") {
-                    false
-                } else {
-                    recoveredState?.hadForceExit ?: hadForceExit
-                }
-                val effectiveLastForceExitTime = if (userPosition == "CASH") {
-                    0L
-                } else {
-                    recoveredState?.lastForceExitTime ?: lastForceExitTime
-                }
-                effectiveLastRatio = if (userPosition == "CASH") {
-                    0
-                } else {
-                    recoveredState?.lastRatio ?: prefs.getInt(KEY_LAST_RATIO, 0)
-                }
-                val effectiveVixLock = if (userPosition == "CASH") {
-                    false
-                } else {
-                    recoveredState?.vixLock ?: vixLock
-                }
-                val effectiveVixCalmDays = if (userPosition == "CASH") {
-                    0
-                } else {
-                    recoveredState?.vixCalmDays ?: vixCalmDays
-                }
-                signalDesc = if (userPosition == "CASH") {
-                    "-"
-                } else {
-                    recoveredState?.lastSignalDesc
-                        ?: prefs.getString(KEY_LAST_SIGNAL_DESC, "-")
-                        ?: "-"
-                }
-                val hasSignalBasis = effectiveSignalEntryPrice > 0
-
+                effectiveSignalEntryPrice = recoveredState?.signalEntryPrice ?: persistedSignalEntryPrice
+                val effectiveHadForceExit = recoveredState?.hadForceExit ?: hadForceExit
+                val effectiveLastForceExitTime = recoveredState?.lastForceExitTime ?: lastForceExitTime
+                effectiveLastRatio = recoveredState?.lastRatio ?: prefs.getInt(KEY_LAST_RATIO, 0)
+                val effectiveVixLock = recoveredState?.vixLock ?: vixLock
+                val effectiveVixCalmDays = recoveredState?.vixCalmDays ?: vixCalmDays
+                signalDesc = recoveredState?.lastSignalDesc
+                    ?: prefs.getString(KEY_LAST_SIGNAL_DESC, "-")
+                    ?: "-"
                 val result = TqqqAlgorithm.calculate(
                     qPrices = qHis,
                     tPrices = tHis,
@@ -159,65 +125,31 @@ class StockWidget : GlanceAppWidget() {
                 )
 
                 val currentRatio = result.targetRatio
-                val enteredAny = effectiveLastRatio == 0 && currentRatio > 0 && !hasSignalBasis
-                val exitedToCash = effectiveLastRatio > 0 && currentRatio == 0
-                val wasTqqqTier = effectiveLastRatio >= 80
-                val wasTwoThirds = effectiveLastRatio == 67
-                val toTwoThirds = currentRatio == 67
-                val toCash = currentRatio == 0
-                val meaningfulReduce = (wasTqqqTier && toTwoThirds) || (wasTwoThirds && toCash) || (wasTqqqTier && toCash)
-                val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
-                val cooldownTrigger = meaningfulReduce || forceExitNow
-                val cooldownDone = effectiveHadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
-                val now = System.currentTimeMillis()
-                val nextHadForceExit = when {
-                    enteredAny -> false
-                    cooldownTrigger -> true
-                    cooldownDone -> false
-                    else -> effectiveHadForceExit
-                }
 
                 if (effectiveLastRatio != currentRatio) {
                     signalDesc = "${ratioLabel(effectiveLastRatio)} -> ${ratioLabel(currentRatio)}"
                 }
 
                 prefs.edit {
-                    val closedLastRatio = recoveredState?.lastRatio ?: currentRatio
-                    val closedSignalDesc = recoveredState?.lastSignalDesc ?: signalDesc
+                    val closedLastRatio = when {
+                        recoveredState != null -> recoveredState.lastRatio
+                        else -> prefs.getInt(KEY_LAST_RATIO, 0)
+                    }
+                    val closedSignalDesc = when {
+                        recoveredState != null -> recoveredState.lastSignalDesc
+                        else -> prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
+                    }
                     putInt(KEY_LAST_RATIO, closedLastRatio)
                     putString(KEY_LAST_SIGNAL_DESC, closedSignalDesc)
+                    putString(KEY_USER_POSITION, if (closedLastRatio == 0) "CASH" else "TQQQ")
 
-                    if (recoveredState != null && recoveredState.signalEntryPrice > 0 && userPosition != "CASH") {
+                    if (recoveredState != null) {
                         putFloat(KEY_SIGNAL_ENTRY_PRICE, recoveredState.signalEntryPrice.toFloat())
                         putBoolean(KEY_HAD_FORCE_EXIT, recoveredState.hadForceExit)
                         putLong(KEY_LAST_FORCE_EXIT_TIME, recoveredState.lastForceExitTime)
-                    }
-
-                    if (recoveredState != null && userPosition != "CASH") {
                         putBoolean(KEY_VIX_LOCK, recoveredState.vixLock)
                         putInt(KEY_VIX_CALM_DAYS, recoveredState.vixCalmDays)
                     }
-
-                    if (enteredAny) {
-                        putFloat(KEY_SIGNAL_ENTRY_PRICE, result.currentPrice.toFloat())
-                        putBoolean(KEY_HAD_FORCE_EXIT, false)
-                        putLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
-                    } else if (cooldownTrigger) {
-                        putBoolean(KEY_HAD_FORCE_EXIT, true)
-                        putLong(KEY_LAST_FORCE_EXIT_TIME, now)
-                    } else if (cooldownDone) {
-                        putBoolean(KEY_HAD_FORCE_EXIT, false)
-                        putLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
-                    }
-
-                    putBoolean(KEY_VIX_LOCK, result.isVixLock)
-                    putInt(KEY_VIX_CALM_DAYS, result.vixCalmDays)
-
-                    if (currentRatio == 0 && !nextHadForceExit) {
-                        putFloat(KEY_SIGNAL_ENTRY_PRICE, 0f)
-                    }
-
-                    putString(KEY_USER_POSITION, result.displayPosition)
                 }
 
                 val chartDays = 120
