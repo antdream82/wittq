@@ -78,8 +78,6 @@ class StockWidget : GlanceAppWidget() {
         val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
         val vixLock = prefs.getBoolean(KEY_VIX_LOCK, false)
         val vixCalmDays = prefs.getInt(KEY_VIX_CALM_DAYS, 0)
-        val hasPersistedLastRatio = prefs.contains(KEY_LAST_RATIO)
-        val hasPersistedSignalDesc = prefs.contains(KEY_LAST_SIGNAL_DESC)
         var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
         var effectiveSignalEntryPrice = 0.0
         var effectiveLastRatio = 0
@@ -91,10 +89,10 @@ class StockWidget : GlanceAppWidget() {
                 val qData = StockApiEngine.fetchMarketData(context, "QQQ") ?: return@withContext null
                 val spyData = StockApiEngine.fetchMarketData(context, "SPY") ?: return@withContext null
                 val vixData = StockApiEngine.fetchMarketData(context, "^VIX") ?: return@withContext null
-                val tHis = tqData.safeClosedHistory(nowMs)
-                val qHis = qData.safeClosedHistory(nowMs)
-                val spyHis = spyData.safeClosedHistory(nowMs)
-                val vixHis = vixData.safeClosedHistory(nowMs)
+                val tHis = tqData.safeHistory()
+                val qHis = qData.safeHistory()
+                val spyHis = spyData.safeHistory()
+                val vixHis = vixData.safeHistory()
 
                 if (tHis.isEmpty() || qHis.isEmpty() || spyHis.isEmpty() || vixHis.isEmpty()) {
                     Log.e("WITTQ_DEBUG", "Price data is empty")
@@ -125,8 +123,7 @@ class StockWidget : GlanceAppWidget() {
                 effectiveLastRatio = if (userPosition == "CASH") {
                     0
                 } else {
-                    recoveredState?.lastRatio
-                        ?: if (hasPersistedLastRatio) prefs.getInt(KEY_LAST_RATIO, 0) else 0
+                    recoveredState?.lastRatio ?: prefs.getInt(KEY_LAST_RATIO, 0)
                 }
                 val effectiveVixLock = if (userPosition == "CASH") {
                     false
@@ -142,7 +139,8 @@ class StockWidget : GlanceAppWidget() {
                     "-"
                 } else {
                     recoveredState?.lastSignalDesc
-                        ?: if (hasPersistedSignalDesc) prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-" else "-"
+                        ?: prefs.getString(KEY_LAST_SIGNAL_DESC, "-")
+                        ?: "-"
                 }
                 val hasSignalBasis = effectiveSignalEntryPrice > 0
 
@@ -184,8 +182,10 @@ class StockWidget : GlanceAppWidget() {
                 }
 
                 prefs.edit {
-                    putInt(KEY_LAST_RATIO, currentRatio)
-                    putString(KEY_LAST_SIGNAL_DESC, signalDesc)
+                    val closedLastRatio = recoveredState?.lastRatio ?: currentRatio
+                    val closedSignalDesc = recoveredState?.lastSignalDesc ?: signalDesc
+                    putInt(KEY_LAST_RATIO, closedLastRatio)
+                    putString(KEY_LAST_SIGNAL_DESC, closedSignalDesc)
 
                     if (recoveredState != null && recoveredState.signalEntryPrice > 0 && userPosition != "CASH") {
                         putFloat(KEY_SIGNAL_ENTRY_PRICE, recoveredState.signalEntryPrice.toFloat())
