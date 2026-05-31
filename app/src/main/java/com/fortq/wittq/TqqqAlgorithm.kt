@@ -2,8 +2,7 @@ package com.fortq.wittq
 
 import kotlin.math.pow
 import kotlin.math.sqrt
-import android.content.Context
-import android.content.SharedPreferences
+import kotlin.math.abs
 
 
 data class AlgoResult(
@@ -14,7 +13,7 @@ data class AlgoResult(
     val actionColor: Long,
     val disparity: Double,
     val vol20: Double,
-    val targetRatio: Int,
+    val targetRatio: Double,
     val signalChangeDesc: String? = null,
     val rsi: Double,
     val displayPosition: String,
@@ -28,6 +27,11 @@ data class AlgoResult(
     val isVixLock: Boolean = false,
     val vixCalmDays: Int = 0,
     val isVixPanic: Boolean = false,
+    val isHardDrawdownRisk: Boolean = false,
+    val isSoftStop: Boolean = false,
+    val finalTrailArmed: Boolean = false,
+    val finalTrailHit: Boolean = false,
+    val overheatMaxDisp: Double = 0.0,
 )
 
 data class LinRegResult(
@@ -150,21 +154,28 @@ object AGTQStrategy {
 
 object TqqqAlgorithm {
     private const val VOL_RISK_LIMIT = 5.5
-    private const val SPY_RISK_RATIO = 1.0025
-    private const val DRAWDOWN_STOP_RATIO = 0.9425
-    private const val ENTRY100_DISP = 101.0
+    private const val LOW_EXPOSURE = 66.67
+    private const val SPY_RISK_RATIO = 1.0015
+    private const val DRAWDOWN_STOP_RATIO = 0.9300
+    private const val SOFT_STOP_RUNNER_EXPOSURE = 10.0
+    private const val ENTRY100_DISP = 100.5
     private const val SPECIAL_SLOPE_TH = 0.11
     private const val SPECIAL_DISP_MAX = 98.8
     private const val SPECIAL_VOL_MAX = 6.0
-    private const val TRIM90_DISP = 127.5
-    private const val TRIM80_DISP = 128.5
-    private const val TRIM5_DISP = 142.0
-    private const val EXIT_DISP = 155.5
-    private const val PROFIT_TRIM_RATIO = 1.07
+    private const val PROFIT_TRIM_RATIO = 1.165
+    private const val PROFIT_EXPOSURE = 100.0
+    private const val MILD_DISP = 107.0
+    private const val MILD_EXPOSURE = 100.0
+    private const val DEEP_DISP = 143.0
+    private const val DEEP_EXPOSURE = 2.5
+    private const val FINAL_TRAIL_ARM_DISP = 152.5
+    private const val FINAL_TRAIL_GIVEBACK = 8.0
+    private const val FINAL_TRAIL_EXPOSURE = 2.5
+    private const val EXIT_DISP = 156.5
     private const val COOLDOWN_DAYS = 10
-    private const val COOLDOWN_RSI = 43.0
-    private const val VIX_LOCK_TRIGGER = 48.0
-    private const val VIX_UNLOCK_LEVEL = 29.0
+    private const val COOLDOWN_RSI = 41.0
+    private const val VIX_LOCK_TRIGGER = 45.5
+    private const val VIX_UNLOCK_LEVEL = 28.5
     private const val VIX_UNLOCK_DAYS = 3
 
     fun calculate(
@@ -178,6 +189,9 @@ object TqqqAlgorithm {
         lastForceExitTime: Long = 0L,
         vixLock: Boolean = false,
         vixCalmDays: Int = 0,
+        finalTrailArmed: Boolean = false,
+        finalTrailHit: Boolean = false,
+        overheatMaxDisp: Double = 0.0,
         currentTimeMs: Long = System.currentTimeMillis(),
     ): AlgoResult {
         val tqqqCurrent = tPrices.lastOrNull() ?: 0.0
@@ -190,7 +204,6 @@ object TqqqAlgorithm {
         val qqqMA161 = qPrices.takeLast(161).average()
 
         val disparityTQQQ = (tqqqCurrent / tqqqMA200) * 100
-        val disparitySPY = (spyCurrent / spyMA200) * 100
         val vol20 = calculateVolatility(tPrices, 20)
         val qqqRsi = calculateRSI(qPrices, 14)
 
@@ -202,10 +215,13 @@ object TqqqAlgorithm {
         val tqDisSlope = tqDisSlopeResult.slope
 
         // 상태 설정
-        var targetRatio = 0
+        var targetRatio = 0.0
         var actionTitle: String
         var actionDesc: String
         var actionColor: Long = 0xFF8E8E93
+        var nextFinalTrailArmed = finalTrailArmed
+        var nextFinalTrailHit = finalTrailHit
+        var nextOverheatMaxDisp = overheatMaxDisp
 
         // [작동 우선 순위 1, 2, 3] 강제 탈출 조건
         val isReady = !qqqRsi.isNaN() &&
@@ -214,11 +230,11 @@ object TqqqAlgorithm {
             spyPrices.size >= 200 &&
             vixPrices.isNotEmpty()
 
-        val isTqqqBullish = disparityTQQQ >= ENTRY100_DISP
+        val isTqqqBullish = tqqqMA200 > 0 && tqqqCurrent > tqqqMA200
         val isQqqBullish = qqqMA3 > qqqMA161
-        val isVolatilityRisk = vol20 >= VOL_RISK_LIMIT
+        val isVolatilityRisk = vol20 > VOL_RISK_LIMIT
         val isSpyDisparityRisk = spyMA200 > 0 && (spyCurrent / spyMA200) <= SPY_RISK_RATIO
-        val isDrawdownRisk = if (lastSignalEntryPrice > 0) {
+        val rawDrawdownRisk = if (lastSignalEntryPrice > 0) {
             tqqqCurrent <= lastSignalEntryPrice * DRAWDOWN_STOP_RATIO
         } else false
 
@@ -252,46 +268,67 @@ object TqqqAlgorithm {
                 }
             }
         }
+        val vixHardZeroActive = isReady && nextVixLock && !vixPanicSell
+        val hardRiskActive = vixPanicSell || vixHardZeroActive || isVolatilityRisk || isSpyDisparityRisk
+        val softStopHit = rawDrawdownRisk && SOFT_STOP_RUNNER_EXPOSURE > 0.0 && !hardRiskActive
+        val hardDrawdownRisk = rawDrawdownRisk && !softStopHit
 
         when {
             // 0) 데이터 준비 부족
             !isReady -> {
-                targetRatio = 0
+                targetRatio = 0.0
                 actionTitle = "WAIT"
                 actionDesc = "Loading"
                 actionColor = 0xFF8E8E93
             }
             // 1) VIX panic sell and lock
             vixPanicSell -> {
-                targetRatio = 0
+                targetRatio = 0.0
                 actionTitle = "ESCAPE"
                 actionDesc = "VIX Panic"
                 actionColor = 0xFFFF453A
             }
+            // 1-a) VIX lock remains active after panic until calm days complete.
+            vixHardZeroActive -> {
+                targetRatio = 0.0
+                actionTitle = "VIX LOCK"
+                actionDesc = "Hard Zero"
+                actionColor = 0xFFFF453A
+            }
             // 1) 변동성 Risk
             isVolatilityRisk -> {
-                targetRatio = 0
+                targetRatio = 0.0
                 actionTitle = "ESCAPE"
                 actionDesc = "Overheat"
                 actionColor = 0xFFFF453A
             }
             // 2) SPY 이격도 Risk
             isSpyDisparityRisk -> {
-                targetRatio = 0
+                targetRatio = 0.0
                 actionTitle = "ESCAPE"
                 actionDesc = "SPY Weak"
                 actionColor = 0xFFFF453A
             }
             // 3) 강제 탈출 (손절)
-            isDrawdownRisk -> {
-                targetRatio = 0
+            hardDrawdownRisk -> {
+                targetRatio = 0.0
                 actionTitle = "STOP"
-                actionDesc = "Runaway"
+                actionDesc = "Hard DD"
                 actionColor = 0xFFFF453A
+            }
+            // 3-a) Soft stop keeps a small runner instead of forcing cash.
+            softStopHit -> {
+                targetRatio = SOFT_STOP_RUNNER_EXPOSURE
+                actionTitle = "SOFT STOP"
+                actionDesc = "Runner ${formatRatio(SOFT_STOP_RUNNER_EXPOSURE)}%"
+                actionColor = 0xFFFFCC00
+                nextFinalTrailArmed = false
+                nextFinalTrailHit = false
+                nextOverheatMaxDisp = 0.0
             }
             // 4) 재진입 불가 상태
             !canEnter -> {
-                targetRatio = 0
+                targetRatio = 0.0
                 actionTitle = "Cooling"
                 actionDesc = if (coolingActive) "${cooldownDaysLeft}D lock left" else "RSI < ${COOLDOWN_RSI.toInt()}"
                 actionColor = 0xFF8E8E93
@@ -308,44 +345,82 @@ object TqqqAlgorithm {
 
                 // 기본 진입 비중 결정
                 targetRatio = when {
-                    entry100 -> 100
-                    entry10 && specialEntry && allowScaleUp -> 100
-                    entry10 -> 67
-                    else -> 0
+                    entry100 -> 100.0
+                    entry10 && specialEntry && allowScaleUp -> 100.0
+                    entry10 -> LOW_EXPOSURE
+                    else -> 0.0
                 }
 
-                // 단계적 감량 (Scaling Down) - 100% 진입 상태일 때 적용
-                if (targetRatio == 100) {
+                if (sameRatio(targetRatio, 100.0)) {
+                    if (disparityTQQQ >= DEEP_DISP) {
+                        nextOverheatMaxDisp = maxOf(nextOverheatMaxDisp, disparityTQQQ)
+                    }
+                    if (disparityTQQQ >= FINAL_TRAIL_ARM_DISP) {
+                        nextFinalTrailArmed = true
+                        nextOverheatMaxDisp = maxOf(nextOverheatMaxDisp, disparityTQQQ)
+                    }
+                    if (nextFinalTrailArmed && nextOverheatMaxDisp > 0.0 &&
+                        disparityTQQQ <= nextOverheatMaxDisp - FINAL_TRAIL_GIVEBACK
+                    ) {
+                        nextFinalTrailHit = true
+                    }
+                    if (disparityTQQQ < MILD_DISP) {
+                        nextFinalTrailArmed = false
+                        nextFinalTrailHit = false
+                        nextOverheatMaxDisp = 0.0
+                    }
+                } else {
+                    nextFinalTrailArmed = false
+                    nextFinalTrailHit = false
+                    nextOverheatMaxDisp = 0.0
+                }
+
+                // Late de-risk 2.5 + soft runner 10 logic.
+                if (sameRatio(targetRatio, 100.0)) {
+                    val profitHit = lastSignalEntryPrice > 0 && tqqqCurrent >= lastSignalEntryPrice * PROFIT_TRIM_RATIO
+                    val mildHit = disparityTQQQ >= MILD_DISP
+                    val deepHit = disparityTQQQ >= DEEP_DISP
                     targetRatio = when {
-                        disparityTQQQ >= EXIT_DISP -> 0
-                        disparityTQQQ >= TRIM5_DISP -> 5
-                        disparityTQQQ >= TRIM80_DISP -> 80
-                        disparityTQQQ >= TRIM90_DISP -> 90
-                        lastSignalEntryPrice > 0 && tqqqCurrent >= lastSignalEntryPrice * PROFIT_TRIM_RATIO -> 95
-                        else -> 100
+                        disparityTQQQ >= EXIT_DISP -> 0.0
+                        nextFinalTrailHit -> FINAL_TRAIL_EXPOSURE
+                        deepHit -> DEEP_EXPOSURE
+                        mildHit -> MILD_EXPOSURE
+                        profitHit -> PROFIT_EXPOSURE
+                        else -> 100.0
                     }
                 }
 
+                if (sameRatio(targetRatio, 0.0)) {
+                    nextFinalTrailArmed = false
+                    nextFinalTrailHit = false
+                    nextOverheatMaxDisp = 0.0
+                }
+
                 // UI 메시지 설정
-                actionTitle = if (targetRatio > 0) "HOLD" else "WAIT"
-                actionDesc = when (targetRatio) {
-                    100 -> "FULL"
-                    95 -> "TRIM95"
-                    90 -> "TRIM90"
-                    80 -> "TRIM80"
-                    67 -> if (nextVixLock) "2/3 / VIX LOCK" else "2/3"
-                    5 -> "MINI"
+                actionTitle = if (targetRatio > 0.0) "HOLD" else "WAIT"
+                actionDesc = when {
+                    sameRatio(targetRatio, 100.0) -> "TQQQ FULL"
+                    sameRatio(targetRatio, LOW_EXPOSURE) -> "TQQQ 2/3"
+                    sameRatio(targetRatio, SOFT_STOP_RUNNER_EXPOSURE) -> "TQQQ Soft 10%"
+                    sameRatio(targetRatio, DEEP_EXPOSURE) && sameRatio(DEEP_EXPOSURE, FINAL_TRAIL_EXPOSURE) -> "TQQQ Runner 2.5%"
+                    sameRatio(targetRatio, FINAL_TRAIL_EXPOSURE) -> "TQQQ Final 2.5%"
+                    sameRatio(targetRatio, DEEP_EXPOSURE) -> "TQQQ Deep 2.5%"
+                    targetRatio > 0.0 -> "TQQQ ${formatRatio(targetRatio)}%"
                     else -> "-"
                 }
                 actionColor = when {
-                    targetRatio >= 100 -> 0xFF30D158
-                    targetRatio >= 95 -> 0xFF0A84FF
-                    targetRatio >= 80 -> 0xFF5AC8FA
-                    targetRatio >= 10 -> 0xFFFFCC00
-                    targetRatio > 0 -> 0xFF8E8E93
+                    targetRatio >= 100.0 -> 0xFF30D158
+                    targetRatio >= LOW_EXPOSURE -> 0xFF5AC8FA
+                    targetRatio >= SOFT_STOP_RUNNER_EXPOSURE -> 0xFFFFCC00
+                    targetRatio > 0.0 -> 0xFF8E8E93
                     else -> 0xFF8E8E93
                 }
             }
+        }
+        if (sameRatio(targetRatio, 0.0)) {
+            nextFinalTrailArmed = false
+            nextFinalTrailHit = false
+            nextOverheatMaxDisp = 0.0
         }
         val profitRate = if (lastSignalEntryPrice > 0) {
             ((tqqqCurrent - lastSignalEntryPrice) / lastSignalEntryPrice) * 100
@@ -354,8 +429,8 @@ object TqqqAlgorithm {
         }
 
         return AlgoResult(
-            score = if (targetRatio >= 100) 2 else if (targetRatio > 0) 1 else 0,
-            marketStatus = "${targetRatio}%",
+            score = if (targetRatio >= 100.0) 2 else if (targetRatio > 0.0) 1 else 0,
+            marketStatus = "${formatRatio(targetRatio)}%",
             actionTitle = actionTitle,
             actionDesc = actionDesc,
             actionColor = actionColor,
@@ -363,7 +438,7 @@ object TqqqAlgorithm {
             vol20 = vol20,
             targetRatio = targetRatio,
             rsi = qqqRsi,
-            displayPosition = if (targetRatio == 0) "CASH" else "TQQQ",
+            displayPosition = if (sameRatio(targetRatio, 0.0)) "CASH" else "TQQQ",
             currentPrice = tqqqCurrent,
             profitRate = profitRate,
             userPosition = userPosition,
@@ -374,7 +449,22 @@ object TqqqAlgorithm {
             isVixLock = nextVixLock,
             vixCalmDays = nextVixCalmDays,
             isVixPanic = vixPanicSell,
+            isHardDrawdownRisk = hardDrawdownRisk,
+            isSoftStop = softStopHit,
+            finalTrailArmed = nextFinalTrailArmed,
+            finalTrailHit = nextFinalTrailHit,
+            overheatMaxDisp = nextOverheatMaxDisp,
         )
+    }
+
+    private fun sameRatio(a: Double, b: Double): Boolean = abs(a - b) < 0.01
+
+    private fun formatRatio(ratio: Double): String {
+        return if (sameRatio(ratio, kotlin.math.round(ratio))) {
+            kotlin.math.round(ratio).toInt().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.2f", ratio).trimEnd('0').trimEnd('.')
+        }
     }
 
     private fun calculateVolatility(prices: List<Double>, n: Int): Double {

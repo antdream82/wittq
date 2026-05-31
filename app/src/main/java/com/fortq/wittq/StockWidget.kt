@@ -2,6 +2,7 @@ package com.fortq.wittq
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
 import android.graphics.*
 import android.util.Log
@@ -34,6 +35,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlin.collections.emptyList
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class UpdateActionCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
@@ -55,9 +58,13 @@ class StockWidget : GlanceAppWidget() {
         private const val KEY_LAST_FORCE_EXIT_TIME = "last_force_exit_time"
         private const val KEY_USER_POSITION = "user_position"
         private const val KEY_LAST_RATIO = "last_ratio"
+        private const val KEY_LAST_RATIO_VALUE = "last_ratio_value"
         private const val KEY_LAST_SIGNAL_DESC = "last_signal_desc"
         private const val KEY_VIX_LOCK = "vix_lock"
         private const val KEY_VIX_CALM_DAYS = "vix_calm_days"
+        private const val KEY_FINAL_TRAIL_ARMED = "final_trail_armed"
+        private const val KEY_FINAL_TRAIL_HIT = "final_trail_hit"
+        private const val KEY_OVERHEAT_MAX_DISP = "overheat_max_disp"
     }
 
     // 3. SizeMode 적용: 기기별 다양한 4x2 사이즈에 대응
@@ -78,9 +85,12 @@ class StockWidget : GlanceAppWidget() {
         val lastForceExitTime = prefs.getLong(KEY_LAST_FORCE_EXIT_TIME, 0L)
         val vixLock = prefs.getBoolean(KEY_VIX_LOCK, false)
         val vixCalmDays = prefs.getInt(KEY_VIX_CALM_DAYS, 0)
+        val finalTrailArmed = prefs.getBoolean(KEY_FINAL_TRAIL_ARMED, false)
+        val finalTrailHit = prefs.getBoolean(KEY_FINAL_TRAIL_HIT, false)
+        val overheatMaxDisp = prefs.getFloat(KEY_OVERHEAT_MAX_DISP, 0f).toDouble()
         var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
         var effectiveSignalEntryPrice = 0.0
-        var effectiveLastRatio = 0
+        var effectiveLastRatio = 0.0
 
         val resultdata = withContext(Dispatchers.IO) {
             try {
@@ -104,9 +114,12 @@ class StockWidget : GlanceAppWidget() {
                 effectiveSignalEntryPrice = recoveredState?.signalEntryPrice ?: persistedSignalEntryPrice
                 val effectiveHadForceExit = recoveredState?.hadForceExit ?: hadForceExit
                 val effectiveLastForceExitTime = recoveredState?.lastForceExitTime ?: lastForceExitTime
-                effectiveLastRatio = recoveredState?.lastRatio ?: prefs.getInt(KEY_LAST_RATIO, 0)
+                effectiveLastRatio = recoveredState?.lastRatio ?: readLastRatio(prefs)
                 val effectiveVixLock = recoveredState?.vixLock ?: vixLock
                 val effectiveVixCalmDays = recoveredState?.vixCalmDays ?: vixCalmDays
+                val effectiveFinalTrailArmed = recoveredState?.finalTrailArmed ?: finalTrailArmed
+                val effectiveFinalTrailHit = recoveredState?.finalTrailHit ?: finalTrailHit
+                val effectiveOverheatMaxDisp = recoveredState?.overheatMaxDisp ?: overheatMaxDisp
                 signalDesc = recoveredState?.lastSignalDesc
                     ?: prefs.getString(KEY_LAST_SIGNAL_DESC, "-")
                     ?: "-"
@@ -121,27 +134,31 @@ class StockWidget : GlanceAppWidget() {
                     lastForceExitTime = effectiveLastForceExitTime,
                     vixLock = effectiveVixLock,
                     vixCalmDays = effectiveVixCalmDays,
+                    finalTrailArmed = effectiveFinalTrailArmed,
+                    finalTrailHit = effectiveFinalTrailHit,
+                    overheatMaxDisp = effectiveOverheatMaxDisp,
                     currentTimeMs = nowMs
                 )
 
                 val currentRatio = result.targetRatio
 
-                if (effectiveLastRatio != currentRatio) {
+                if (ratioChanged(effectiveLastRatio, currentRatio)) {
                     signalDesc = "${ratioLabel(effectiveLastRatio)} -> ${ratioLabel(currentRatio)}"
                 }
 
                 prefs.edit {
                     val closedLastRatio = when {
                         recoveredState != null -> recoveredState.lastRatio
-                        else -> prefs.getInt(KEY_LAST_RATIO, 0)
+                        else -> readLastRatio(prefs)
                     }
                     val closedSignalDesc = when {
                         recoveredState != null -> recoveredState.lastSignalDesc
                         else -> prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
                     }
-                    putInt(KEY_LAST_RATIO, closedLastRatio)
+                    putFloat(KEY_LAST_RATIO_VALUE, closedLastRatio.toFloat())
+                    putInt(KEY_LAST_RATIO, closedLastRatio.roundToInt())
                     putString(KEY_LAST_SIGNAL_DESC, closedSignalDesc)
-                    putString(KEY_USER_POSITION, if (closedLastRatio == 0) "CASH" else "TQQQ")
+                    putString(KEY_USER_POSITION, if (sameRatio(closedLastRatio, 0.0)) "CASH" else "TQQQ")
 
                     if (recoveredState != null) {
                         putFloat(KEY_SIGNAL_ENTRY_PRICE, recoveredState.signalEntryPrice.toFloat())
@@ -149,6 +166,9 @@ class StockWidget : GlanceAppWidget() {
                         putLong(KEY_LAST_FORCE_EXIT_TIME, recoveredState.lastForceExitTime)
                         putBoolean(KEY_VIX_LOCK, recoveredState.vixLock)
                         putInt(KEY_VIX_CALM_DAYS, recoveredState.vixCalmDays)
+                        putBoolean(KEY_FINAL_TRAIL_ARMED, recoveredState.finalTrailArmed)
+                        putBoolean(KEY_FINAL_TRAIL_HIT, recoveredState.finalTrailHit)
+                        putFloat(KEY_OVERHEAT_MAX_DISP, recoveredState.overheatMaxDisp.toFloat())
                     }
                 }
 
@@ -304,16 +324,16 @@ class StockWidget : GlanceAppWidget() {
         val tqqqState = if (res.isTqqqBullish) "BULL" else "BEAR"
         val spyState = if (isSpyRisk) "RISK" else "SAFE"
         val hasLastMove = lastSignal != "-"
-        val targetSubLabel = if (res.targetRatio > 0) "TQQQ exposure" else "No position"
-        val actionLabel = if (res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove) "CHANGE" else "ACTION"
+        val targetSubLabel = if (res.targetRatio > 0.0) "TQQQ exposure" else "No position"
+        val actionLabel = if (res.targetRatio > 0.0 && res.actionTitle == "HOLD" && hasLastMove) "CHANGE" else "ACTION"
         val actionDisplayTitle = when {
-            res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove -> lastSignal
-            res.targetRatio > 0 && res.actionTitle == "HOLD" -> "TARGET"
+            res.targetRatio > 0.0 && res.actionTitle == "HOLD" && hasLastMove -> lastSignal
+            res.targetRatio > 0.0 && res.actionTitle == "HOLD" -> "TARGET"
             else -> res.actionTitle
         }
         val actionDisplayDesc = when {
-            res.targetRatio > 0 && res.actionTitle == "HOLD" && hasLastMove -> ""
-            res.targetRatio > 0 && res.actionTitle == "HOLD" -> "No change"
+            res.targetRatio > 0.0 && res.actionTitle == "HOLD" && hasLastMove -> ""
+            res.targetRatio > 0.0 && res.actionTitle == "HOLD" -> "No change"
             else -> res.actionDesc
         }
         val cooldownState = when {
@@ -421,7 +441,7 @@ class StockWidget : GlanceAppWidget() {
                                 Text("VOL", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
                                     String.format("%.2f%%", res.vol20),
-                                    style = TextStyle(color = ColorProvider(if (res.vol20 >= VOL_RISK_LIMIT) Color(0xFFFF453A) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
+                                    style = TextStyle(color = ColorProvider(if (res.vol20 > VOL_RISK_LIMIT) Color(0xFFFF453A) else Color(0xFF30D158)), fontSize = valueSize, fontWeight = FontWeight.Bold)
                                 )
                             }
                             Column(modifier = GlanceModifier.defaultWeight()) {
@@ -581,10 +601,13 @@ class StockWidget : GlanceAppWidget() {
         val signalEntryPrice: Double,
         val hadForceExit: Boolean,
         val lastForceExitTime: Long,
-        val lastRatio: Int,
+        val lastRatio: Double,
         val lastSignalDesc: String,
         val vixLock: Boolean,
-        val vixCalmDays: Int
+        val vixCalmDays: Int,
+        val finalTrailArmed: Boolean,
+        val finalTrailHit: Boolean,
+        val overheatMaxDisp: Double
     )
 
     private fun recoverHistoricalSignalState(
@@ -600,10 +623,13 @@ class StockWidget : GlanceAppWidget() {
         var signalEntryPrice = 0.0
         var hadForceExit = false
         var lastForceExitTime = 0L
-        var lastRatio = 0
+        var lastRatio = 0.0
         var lastSignalDesc = "-"
         var vixLock = false
         var vixCalmDays = 0
+        var finalTrailArmed = false
+        var finalTrailHit = false
+        var overheatMaxDisp = 0.0
 
         for (index in series.timestamps.indices) {
             val result = TqqqAlgorithm.calculate(
@@ -617,28 +643,26 @@ class StockWidget : GlanceAppWidget() {
                 lastForceExitTime = lastForceExitTime,
                 vixLock = vixLock,
                 vixCalmDays = vixCalmDays,
+                finalTrailArmed = finalTrailArmed,
+                finalTrailHit = finalTrailHit,
+                overheatMaxDisp = overheatMaxDisp,
                 currentTimeMs = series.timestamps[index]
             )
 
             val currentRatio = result.targetRatio
-            val enteredAny = lastRatio == 0 && currentRatio > 0
-            val exitedToCash = lastRatio > 0 && currentRatio == 0
-            val wasTqqqTier = lastRatio >= 80
-            val wasTwoThirds = lastRatio == 67
-            val toTwoThirds = currentRatio == 67
-            val toCash = currentRatio == 0
-            val meaningfulReduce = (wasTqqqTier && toTwoThirds) || (wasTwoThirds && toCash) || (wasTqqqTier && toCash)
-            val forceExitNow = exitedToCash && (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP")
+            val enteredAny = sameRatio(lastRatio, 0.0) && currentRatio > 0.0
+            val exitedToCash = lastRatio > 0.0 && sameRatio(currentRatio, 0.0)
+            val wasTqqqTier = lastRatio >= 80.0
+            val wasLowExposure = sameRatio(lastRatio, 66.67)
+            val toLowExposure = sameRatio(currentRatio, 66.67)
+            val toCash = sameRatio(currentRatio, 0.0)
+            val meaningfulReduce = (wasTqqqTier && toLowExposure) || (wasLowExposure && toCash) || (wasTqqqTier && toCash)
+            val forceExitNow = exitedToCash &&
+                (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP" || result.actionTitle == "VIX LOCK")
             val cooldownTrigger = meaningfulReduce || forceExitNow
-            val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 43
-            val nextHadForceExit = when {
-                enteredAny -> false
-                cooldownTrigger -> true
-                cooldownDone -> false
-                else -> hadForceExit
-            }
+            val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 41.0
 
-            if (lastRatio != currentRatio) {
+            if (ratioChanged(lastRatio, currentRatio)) {
                 lastSignalDesc = "${ratioLabel(lastRatio)} -> ${ratioLabel(currentRatio)}"
             }
 
@@ -652,14 +676,15 @@ class StockWidget : GlanceAppWidget() {
             } else if (cooldownDone) {
                 hadForceExit = false
                 lastForceExitTime = 0L
-            }
-
-            if (currentRatio == 0 && !nextHadForceExit) {
+            } else if (sameRatio(currentRatio, 0.0) && !hadForceExit) {
                 signalEntryPrice = 0.0
             }
 
             vixLock = result.isVixLock
             vixCalmDays = result.vixCalmDays
+            finalTrailArmed = result.finalTrailArmed
+            finalTrailHit = result.finalTrailHit
+            overheatMaxDisp = result.overheatMaxDisp
             lastRatio = currentRatio
         }
 
@@ -670,7 +695,10 @@ class StockWidget : GlanceAppWidget() {
             lastRatio = lastRatio,
             lastSignalDesc = lastSignalDesc,
             vixLock = vixLock,
-            vixCalmDays = vixCalmDays
+            vixCalmDays = vixCalmDays,
+            finalTrailArmed = finalTrailArmed,
+            finalTrailHit = finalTrailHit,
+            overheatMaxDisp = overheatMaxDisp
         )
     }
 
@@ -724,15 +752,26 @@ class StockWidget : GlanceAppWidget() {
         return HistoricalSeries(commonTimes, qPrices, tPrices, spyPrices, vixPrices)
     }
 
-    private fun ratioLabel(ratio: Int): String = when (ratio) {
-        100 -> "TQQQ"
-        95 -> "95%"
-        90 -> "90%"
-        80 -> "80%"
-        67 -> "2/3"
-        5 -> "5%"
-        0 -> "CASH"
-        else -> "${ratio}%"
+    private fun readLastRatio(prefs: SharedPreferences): Double {
+        return if (prefs.contains(KEY_LAST_RATIO_VALUE)) {
+            prefs.getFloat(KEY_LAST_RATIO_VALUE, 0f).toDouble()
+        } else {
+            prefs.getInt(KEY_LAST_RATIO, 0).toDouble()
+        }
+    }
+
+    private fun sameRatio(a: Double, b: Double): Boolean = abs(a - b) < 0.01
+
+    private fun ratioChanged(a: Double, b: Double): Boolean = !sameRatio(a, b)
+
+    private fun ratioLabel(ratio: Double): String = when {
+        sameRatio(ratio, 100.0) -> "TQQQ"
+        sameRatio(ratio, 66.67) -> "2/3"
+        sameRatio(ratio, 10.0) -> "Soft 10%"
+        sameRatio(ratio, 2.5) -> "Runner 2.5%"
+        sameRatio(ratio, 0.0) -> "CASH"
+        sameRatio(ratio, ratio.roundToInt().toDouble()) -> "${ratio.roundToInt()}%"
+        else -> "${String.format(java.util.Locale.US, "%.2f", ratio).trimEnd('0').trimEnd('.')}%"
     }
 
 }
