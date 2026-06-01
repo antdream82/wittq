@@ -191,7 +191,7 @@ class StockWidget : GlanceAppWidget() {
         }
 
         val lastUpdate =
-            SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            SimpleDateFormat("MM/dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
         Log.d("WITTQ_DEBUG", "Widget updated at: $lastUpdate")
 
         provideContent {
