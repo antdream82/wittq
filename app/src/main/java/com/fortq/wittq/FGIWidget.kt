@@ -62,7 +62,7 @@ class FGIWidget : GlanceAppWidget() {
             try {
                 val result = FGApiEngine.fetchAll()
                 val lastUpdate =
-                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                    SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
                 Log.d("WITTQ_DEBUG", "Widget updated at: $lastUpdate")
 
                 if (result != null) {
@@ -100,7 +100,7 @@ class FGIWidget : GlanceAppWidget() {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Loading F&G Index...", style = TextStyle(color = ColorProvider(Color.White)))
                         val reftime =
-                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                            SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
                         Text(
                             reftime, style = TextStyle(
                                 color = ColorProvider(Color.White.copy(alpha = 0.6f)),

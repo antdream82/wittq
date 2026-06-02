@@ -221,7 +221,7 @@ class SnowWidget : GlanceAppWidget() {
 
         provideContent {
             val size = LocalSize.current
-            val lastUpdate = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+            val lastUpdate = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
 
             resultData?.let { (res, tmChart, tqCurrent) ->
                 // 여기서 tmChart와 currentPrice를 UI 함수에 전달합니다.
@@ -231,7 +231,7 @@ class SnowWidget : GlanceAppWidget() {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("updating...", style = TextStyle(color = ColorProvider(Color.White)))
                         val reftime =
-                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                            SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
                         Text(
                             reftime, style = TextStyle(
                                 color = ColorProvider(Color.White.copy(alpha = 0.6f)),

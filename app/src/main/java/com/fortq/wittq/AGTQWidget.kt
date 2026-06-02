@@ -131,7 +131,7 @@ class AGTQWidget : GlanceAppWidget() {
         provideContent {
             val size = LocalSize.current
             val lastUpdate =
-                SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
 
             resultData?.let { (res, tmChart, currentPrice) ->
                 // 여기서 tmChart와 currentPrice를 UI 함수에 전달합니다.
@@ -148,7 +148,7 @@ class AGTQWidget : GlanceAppWidget() {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("updating...", style = TextStyle(color = ColorProvider(Color.White)))
                         val reftime =
-                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                            SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
                         Text(
                             reftime, style = TextStyle(
                                 color = ColorProvider(Color.White.copy(alpha = 0.6f)),
