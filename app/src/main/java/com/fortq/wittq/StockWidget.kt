@@ -392,22 +392,6 @@ class StockWidget : GlanceAppWidget() {
                                         fontWeight = FontWeight.Bold
                                     )
                                 )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "UPDATED $updateTime",
-                                        style = TextStyle(
-                                            color = ColorProvider(Color(0xFF8E8E93)),
-                                            fontSize = (9 * factor).sp
-                                        )
-                                    )
-                                    Spacer(modifier = GlanceModifier.width(5.dp))
-                                    Image(
-                                        provider = ImageProvider(R.drawable.ic_refresh),
-                                        contentDescription = "Refresh",
-                                        modifier = GlanceModifier.size((12 * factor).dp)
-                                            .clickable(actionRunCallback<UpdateActionCallback>())
-                                    )
-                                }
                             }
                         }
 
@@ -441,6 +425,23 @@ class StockWidget : GlanceAppWidget() {
                                 provider = ImageProvider(it),
                                 contentDescription = null,
                                 modifier = GlanceModifier.fillMaxWidth().height((44 * factor).dp)
+                            )
+                        }
+                        Spacer(modifier = GlanceModifier.height((6 * factor).dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "UPDATED $updateTime",
+                                style = TextStyle(
+                                    color = ColorProvider(Color(0xFF8E8E93)),
+                                    fontSize = (9 * factor).sp
+                                )
+                            )
+                            Spacer(modifier = GlanceModifier.width(5.dp))
+                            Image(
+                                provider = ImageProvider(R.drawable.ic_refresh),
+                                contentDescription = "Refresh",
+                                modifier = GlanceModifier.size((12 * factor).dp)
+                                    .clickable(actionRunCallback<UpdateActionCallback>())
                             )
                         }
                     }
