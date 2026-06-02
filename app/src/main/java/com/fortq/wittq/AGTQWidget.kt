@@ -355,26 +355,22 @@ class AGTQWidget : GlanceAppWidget() {
                         InfoRow("MA200 ", dis200Ma)
                     }
                     // 새로고침 버튼
-                    Row (modifier = GlanceModifier.defaultWeight(), verticalAlignment = Alignment.Bottom) {
+                    Row (modifier = GlanceModifier.defaultWeight().fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                         Text(
-                            "Updated $refreshTime",
+                            "Upd $refreshTime",
+                            modifier = GlanceModifier.defaultWeight(),
                             style = TextStyle(
                                 color = ColorProvider(Color(0xFF8E8E93)),
-                                fontSize = (11 * factor).sp
+                                fontSize = (9 * factor).sp
                             )
                         )
-                        Spacer(modifier = GlanceModifier.width(8.dp))
-                        Box(
-                            modifier = GlanceModifier.fillMaxWidth().padding(top = 4.dp),
-                            contentAlignment = Alignment.CenterEnd
-                        ) {
-                            Image(
-                                provider = ImageProvider(R.drawable.ic_refresh),
-                                contentDescription = "Refresh",
-                                modifier = GlanceModifier.size((15 * factor).dp)
-                                    .clickable(actionRunCallback<UpdateAcCallback>())
-                            )
-                        }
+                        Spacer(modifier = GlanceModifier.width(6.dp))
+                        Image(
+                            provider = ImageProvider(R.drawable.ic_refresh),
+                            contentDescription = "Refresh",
+                            modifier = GlanceModifier.size((15 * factor).dp)
+                                .clickable(actionRunCallback<UpdateAcCallback>())
+                        )
                     }
                 }
             }

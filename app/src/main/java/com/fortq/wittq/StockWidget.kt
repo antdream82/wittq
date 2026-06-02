@@ -392,6 +392,22 @@ class StockWidget : GlanceAppWidget() {
                                         fontWeight = FontWeight.Bold
                                     )
                                 )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "UPDATED $updateTime",
+                                        style = TextStyle(
+                                            color = ColorProvider(Color(0xFF8E8E93)),
+                                            fontSize = (9 * factor).sp
+                                        )
+                                    )
+                                    Spacer(modifier = GlanceModifier.width(5.dp))
+                                    Image(
+                                        provider = ImageProvider(R.drawable.ic_refresh),
+                                        contentDescription = "Refresh",
+                                        modifier = GlanceModifier.size((12 * factor).dp)
+                                            .clickable(actionRunCallback<UpdateActionCallback>())
+                                    )
+                                }
                             }
                         }
 
@@ -557,37 +573,6 @@ class StockWidget : GlanceAppWidget() {
                                         fontSize = valueSize,
                                         fontWeight = FontWeight.Bold
                                     )
-                                )
-                            }
-                        }
-                        Spacer(modifier = GlanceModifier.height((8 * factor).dp))
-                        Row(
-                            modifier = GlanceModifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = GlanceModifier.defaultWeight()) {
-                                Text("UPDATED", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
-                                Text(
-                                    updateTime,
-                                    style = TextStyle(
-                                        color = ColorProvider(Color.White.copy(alpha = 0.75f)),
-                                        fontSize = (10 * factor).sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                )
-                            }
-                            Box(
-                                modifier = GlanceModifier
-                                    .size((30 * factor).dp)
-                                    .background(Color.White.copy(alpha = 0.15f))
-                                    .cornerRadius((15 * factor).dp)
-                                    .clickable(actionRunCallback<UpdateActionCallback>()),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.ic_refresh),
-                                    contentDescription = "Refresh",
-                                    modifier = GlanceModifier.size((16 * factor).dp)
                                 )
                             }
                         }
