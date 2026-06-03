@@ -85,9 +85,26 @@ object AutoRefreshScheduler {
         Log.d("AUTO_REFRESH", "Scheduled $workName in ${delayMs / 60000} min")
     }
 
+    private inline fun <reified W : androidx.work.ListenableWorker> enqueueImmediate(
+        context: Context,
+        workName: String
+    ) {
+        val request = OneTimeWorkRequestBuilder<W>()
+            .setConstraints(constraints())
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
+        Log.d("AUTO_REFRESH", "Scheduled immediate $workName")
+    }
+
     fun scheduleStock(context: Context, append: Boolean = false) {
         migrateLegacySchedules(context)
         enqueueOneTime<StockUpdateWorker>(context, STOCK_WORK_NAME, append, nextDelayMillis())
+    }
+
+    fun refreshStockNow(context: Context) {
+        migrateLegacySchedules(context)
+        enqueueImmediate<StockUpdateWorker>(context, STOCK_WORK_NAME)
     }
 
     fun scheduleAgtq(context: Context, append: Boolean = false) {

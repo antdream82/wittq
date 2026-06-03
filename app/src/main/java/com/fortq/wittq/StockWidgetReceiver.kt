@@ -11,7 +11,7 @@ class StockWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
-        StockUpdateWorker.enqueue(context)
+        AutoRefreshScheduler.refreshStockNow(context)
     }
 
     override fun onUpdate(
@@ -20,6 +20,6 @@ class StockWidgetReceiver : GlanceAppWidgetReceiver() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        StockUpdateWorker.enqueue(context)
+        AutoRefreshScheduler.refreshStockNow(context)
     }
 }
