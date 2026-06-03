@@ -9,7 +9,7 @@
 
     android:previewImage="@drawable/prev_agtq"
 
-    android:updatePeriodMillis="0"
+    android:updatePeriodMillis="14400000"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen">
 </appwidget-provider>

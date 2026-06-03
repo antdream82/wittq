@@ -112,8 +112,18 @@ object AutoRefreshScheduler {
         enqueueOneTime<AGTQUpdateWorker>(context, AGTQ_WORK_NAME, append, nextDelayMillis())
     }
 
+    fun refreshAgtqNow(context: Context) {
+        migrateLegacySchedules(context)
+        enqueueImmediate<AGTQUpdateWorker>(context, AGTQ_WORK_NAME)
+    }
+
     fun scheduleSnow(context: Context, append: Boolean = false) {
         migrateLegacySchedules(context)
         enqueueOneTime<SnowUpdateWorker>(context, SNOW_WORK_NAME, append, nextDelayMillis())
+    }
+
+    fun refreshSnowNow(context: Context) {
+        migrateLegacySchedules(context)
+        enqueueImmediate<SnowUpdateWorker>(context, SNOW_WORK_NAME)
     }
 }
