@@ -146,9 +146,9 @@ class StockWidget : GlanceAppWidget() {
                 )
 
                 val currentRatio = result.targetRatio
-                val previousCloseRatio = previousCloseState?.lastRatio ?: effectiveLastRatio
+                val previousCloseRatio = previousCloseState?.lastRatio
 
-                if (ratioChanged(previousCloseRatio, currentRatio)) {
+                if (previousCloseRatio != null && ratioChanged(previousCloseRatio, currentRatio)) {
                     signalDesc = "${ratioLabel(previousCloseRatio)} -> ${ratioLabel(currentRatio)}"
                 }
 
