@@ -88,7 +88,7 @@ class StockWidget : GlanceAppWidget() {
         val finalTrailArmed = prefs.getBoolean(KEY_FINAL_TRAIL_ARMED, false)
         val finalTrailHit = prefs.getBoolean(KEY_FINAL_TRAIL_HIT, false)
         val overheatMaxDisp = prefs.getFloat(KEY_OVERHEAT_MAX_DISP, 0f).toDouble()
-        var signalDesc: String = prefs.getString(KEY_LAST_SIGNAL_DESC, "-") ?: "-"
+        var signalDesc = "-"
         var effectiveSignalEntryPrice = 0.0
         var effectiveLastRatio = 0.0
 
@@ -110,6 +110,14 @@ class StockWidget : GlanceAppWidget() {
                 }
 
                 val recoveredState = recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs)
+                val previousCloseState = recoverHistoricalSignalState(
+                    qData = qData,
+                    tData = tqData,
+                    spyData = spyData,
+                    vixData = vixData,
+                    nowMs = nowMs,
+                    dropLatestBar = true
+                )
 
                 effectiveSignalEntryPrice = recoveredState?.signalEntryPrice ?: persistedSignalEntryPrice
                 val effectiveHadForceExit = recoveredState?.hadForceExit ?: hadForceExit
@@ -120,9 +128,6 @@ class StockWidget : GlanceAppWidget() {
                 val effectiveFinalTrailArmed = recoveredState?.finalTrailArmed ?: finalTrailArmed
                 val effectiveFinalTrailHit = recoveredState?.finalTrailHit ?: finalTrailHit
                 val effectiveOverheatMaxDisp = recoveredState?.overheatMaxDisp ?: overheatMaxDisp
-                signalDesc = recoveredState?.lastSignalDesc
-                    ?: prefs.getString(KEY_LAST_SIGNAL_DESC, "-")
-                    ?: "-"
                 val result = TqqqAlgorithm.calculate(
                     qPrices = qHis,
                     tPrices = tHis,
@@ -141,9 +146,10 @@ class StockWidget : GlanceAppWidget() {
                 )
 
                 val currentRatio = result.targetRatio
+                val previousCloseRatio = previousCloseState?.lastRatio ?: effectiveLastRatio
 
-                if (ratioChanged(effectiveLastRatio, currentRatio)) {
-                    signalDesc = "${ratioLabel(effectiveLastRatio)} -> ${ratioLabel(currentRatio)}"
+                if (ratioChanged(previousCloseRatio, currentRatio)) {
+                    signalDesc = "${ratioLabel(previousCloseRatio)} -> ${ratioLabel(currentRatio)}"
                 }
 
                 prefs.edit {
@@ -617,9 +623,22 @@ class StockWidget : GlanceAppWidget() {
         tData: MarketData,
         spyData: MarketData,
         vixData: MarketData,
-        nowMs: Long = System.currentTimeMillis()
+        nowMs: Long = System.currentTimeMillis(),
+        dropLatestBar: Boolean = false
     ): RecoveredSignalState? {
-        val series = alignHistoricalSeries(qData, tData, spyData, vixData, nowMs) ?: return null
+        val alignedSeries = alignHistoricalSeries(qData, tData, spyData, vixData, nowMs) ?: return null
+        val series = if (dropLatestBar) {
+            if (alignedSeries.timestamps.size <= 1) return null
+            alignedSeries.copy(
+                timestamps = alignedSeries.timestamps.dropLast(1),
+                qPrices = alignedSeries.qPrices.dropLast(1),
+                tPrices = alignedSeries.tPrices.dropLast(1),
+                spyPrices = alignedSeries.spyPrices.dropLast(1),
+                vixPrices = alignedSeries.vixPrices.dropLast(1)
+            )
+        } else {
+            alignedSeries
+        }
         if (series.timestamps.size < 200) return null
 
         var signalEntryPrice = 0.0
