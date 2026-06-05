@@ -37,6 +37,9 @@ import kotlinx.coroutines.withContext
 import kotlin.collections.emptyList
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 class UpdateActionCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
@@ -742,35 +745,45 @@ class StockWidget : GlanceAppWidget() {
         if (qHistory.isEmpty() || tHistory.isEmpty() || spyHistory.isEmpty() || vixHistory.isEmpty()) return null
         if (qTimestamps.isEmpty() || tTimestamps.isEmpty() || spyTimestamps.isEmpty() || vixTimestamps.isEmpty()) return null
 
-        val qMap = qTimestamps.zip(qHistory).toMap()
-        val tMap = tTimestamps.zip(tHistory).toMap()
-        val spyMap = spyTimestamps.zip(spyHistory).toMap()
-        val vixMap = vixTimestamps.zip(vixHistory).toMap()
+        val qMap = dateAlignedMap(qTimestamps, qHistory)
+        val tMap = dateAlignedMap(tTimestamps, tHistory)
+        val spyMap = dateAlignedMap(spyTimestamps, spyHistory)
+        val vixMap = dateAlignedMap(vixTimestamps, vixHistory)
 
-        val commonTimes = qMap.keys
+        val commonDates = qMap.keys
             .intersect(tMap.keys)
             .intersect(spyMap.keys)
             .intersect(vixMap.keys)
             .toList()
             .sorted()
 
-        if (commonTimes.isEmpty()) return null
+        if (commonDates.isEmpty()) return null
 
-        val qPrices = commonTimes.mapNotNull { qMap[it] }
-        val tPrices = commonTimes.mapNotNull { tMap[it] }
-        val spyPrices = commonTimes.mapNotNull { spyMap[it] }
-        val vixPrices = commonTimes.mapNotNull { vixMap[it] }
+        val timestamps = commonDates.mapNotNull { tMap[it]?.first }
+        val qPrices = commonDates.mapNotNull { qMap[it]?.second }
+        val tPrices = commonDates.mapNotNull { tMap[it]?.second }
+        val spyPrices = commonDates.mapNotNull { spyMap[it]?.second }
+        val vixPrices = commonDates.mapNotNull { vixMap[it]?.second }
 
         if (
-            qPrices.size != commonTimes.size ||
-            tPrices.size != commonTimes.size ||
-            spyPrices.size != commonTimes.size ||
-            vixPrices.size != commonTimes.size
+            timestamps.size != commonDates.size ||
+            qPrices.size != commonDates.size ||
+            tPrices.size != commonDates.size ||
+            spyPrices.size != commonDates.size ||
+            vixPrices.size != commonDates.size
         ) {
             return null
         }
 
-        return HistoricalSeries(commonTimes, qPrices, tPrices, spyPrices, vixPrices)
+        return HistoricalSeries(timestamps, qPrices, tPrices, spyPrices, vixPrices)
+    }
+
+    private fun dateAlignedMap(timestamps: List<Long>, prices: List<Double>): Map<LocalDate, Pair<Long, Double>> {
+        val limit = minOf(timestamps.size, prices.size)
+        return (0 until limit).associate { index ->
+            val date = Instant.ofEpochMilli(timestamps[index]).atZone(ZoneOffset.UTC).toLocalDate()
+            date to (timestamps[index] to prices[index])
+        }
     }
 
     private fun readLastRatio(prefs: SharedPreferences): Double {
