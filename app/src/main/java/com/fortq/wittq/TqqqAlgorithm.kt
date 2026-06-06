@@ -34,6 +34,8 @@ data class AlgoResult(
     val overheatMaxDisp: Double = 0.0,
     val c3ReleaseActive: Boolean = false,
     val qqqBullStreak: Int = 0,
+    val overheatDisparity: Double = 0.0,
+    val overheatSmaLen: Int = 200,
 )
 
 data class LinRegResult(
@@ -497,6 +499,8 @@ object TqqqAlgorithm {
             overheatMaxDisp = nextOverheatMaxDisp,
             c3ReleaseActive = nextC3ReleaseActive,
             qqqBullStreak = nextQqqBullStreak,
+            overheatDisparity = overheatDisparity,
+            overheatSmaLen = safeOverheatSmaLen,
         )
     }
 

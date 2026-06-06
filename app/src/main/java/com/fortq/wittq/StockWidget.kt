@@ -578,9 +578,9 @@ class StockWidget : GlanceAppWidget() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = GlanceModifier.defaultWeight()) {
-                                Text("DISP", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
+                                Text("OH ${res.overheatSmaLen}", style = TextStyle(color = ColorProvider(grayColor), fontSize = labelSize))
                                 Text(
-                                    String.format("%.1f%%", res.disparity),
+                                    String.format("%.1f%%", res.overheatDisparity),
                                     style = TextStyle(
                                         color = ColorProvider(Color.White),
                                         fontSize = valueSize,
