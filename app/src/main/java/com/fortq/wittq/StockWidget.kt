@@ -68,6 +68,7 @@ class StockWidget : GlanceAppWidget() {
         private const val KEY_FINAL_TRAIL_ARMED = "final_trail_armed"
         private const val KEY_FINAL_TRAIL_HIT = "final_trail_hit"
         private const val KEY_OVERHEAT_MAX_DISP = "overheat_max_disp"
+        private const val KEY_TQQQ_OVERHEAT_SMA_LEN = "tqqq_overheat_sma_len"
     }
 
     // 3. SizeMode 적용: 기기별 다양한 4x2 사이즈에 대응
@@ -91,6 +92,7 @@ class StockWidget : GlanceAppWidget() {
         val finalTrailArmed = prefs.getBoolean(KEY_FINAL_TRAIL_ARMED, false)
         val finalTrailHit = prefs.getBoolean(KEY_FINAL_TRAIL_HIT, false)
         val overheatMaxDisp = prefs.getFloat(KEY_OVERHEAT_MAX_DISP, 0f).toDouble()
+        val overheatSmaLen = prefs.getInt(KEY_TQQQ_OVERHEAT_SMA_LEN, TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN).coerceIn(100, 300)
         var signalDesc = "-"
         var effectiveSignalEntryPrice = 0.0
         var effectiveLastRatio = 0.0
@@ -112,14 +114,15 @@ class StockWidget : GlanceAppWidget() {
                     throw Exception("Data empty")
                 }
 
-                val recoveredState = recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs)
+                val recoveredState = recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs, overheatSmaLen = overheatSmaLen)
                 val previousCloseState = recoverHistoricalSignalState(
                     qData = qData,
                     tData = tqData,
                     spyData = spyData,
                     vixData = vixData,
                     nowMs = nowMs,
-                    dropLatestBar = true
+                    dropLatestBar = true,
+                    overheatSmaLen = overheatSmaLen
                 )
 
                 effectiveSignalEntryPrice = recoveredState?.signalEntryPrice ?: persistedSignalEntryPrice
@@ -145,6 +148,7 @@ class StockWidget : GlanceAppWidget() {
                     finalTrailArmed = effectiveFinalTrailArmed,
                     finalTrailHit = effectiveFinalTrailHit,
                     overheatMaxDisp = effectiveOverheatMaxDisp,
+                    overheatSmaLen = overheatSmaLen,
                     currentTimeMs = nowMs
                 )
 
@@ -627,7 +631,8 @@ class StockWidget : GlanceAppWidget() {
         spyData: MarketData,
         vixData: MarketData,
         nowMs: Long = System.currentTimeMillis(),
-        dropLatestBar: Boolean = false
+        dropLatestBar: Boolean = false,
+        overheatSmaLen: Int = TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN
     ): RecoveredSignalState? {
         val alignedSeries = alignHistoricalSeries(qData, tData, spyData, vixData, nowMs) ?: return null
         val series = if (dropLatestBar) {
@@ -670,6 +675,7 @@ class StockWidget : GlanceAppWidget() {
                 finalTrailArmed = finalTrailArmed,
                 finalTrailHit = finalTrailHit,
                 overheatMaxDisp = overheatMaxDisp,
+                overheatSmaLen = overheatSmaLen,
                 currentTimeMs = series.timestamps[index]
             )
 

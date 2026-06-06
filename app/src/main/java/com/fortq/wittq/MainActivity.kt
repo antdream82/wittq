@@ -49,6 +49,13 @@ fun PriceInputScreen() {
 
     var avgPrice by remember { mutableStateOf(prefs.getFloat("user_avg_price", 50.0f).toString()) }
     var selectedPos by remember { mutableStateOf(prefs.getString("user_position", "TQQQ") ?: "TQQQ") }
+    var overheatSmaLen by remember {
+        mutableStateOf(
+            prefs.getInt("tqqq_overheat_sma_len", TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN)
+                .coerceIn(100, 300)
+                .toString()
+        )
+    }
 
     val posOptions = listOf("TQQQ", "CASH")
     val isCashSelected = selectedPos == "CASH"
@@ -101,6 +108,18 @@ fun PriceInputScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        OutlinedTextField(
+            value = overheatSmaLen,
+            onValueChange = { value -> overheatSmaLen = value.filter { it.isDigit() }.take(3) },
+            label = { Text("TQQQ 익절/과열 SMA 기간") },
+            supportingText = { Text("기본값 200, 허용 범위 100-300") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         Button(
             onClick = {
                 if (isUpdating) return@Button
@@ -108,6 +127,9 @@ fun PriceInputScreen() {
                 val rawPrice = avgPrice.toFloatOrNull() ?: 0f
                 val inputPrice = (rawPrice * 10).toInt() / 10.0f
                 avgPrice = inputPrice.toString()
+                val inputOverheatSmaLen = (overheatSmaLen.toIntOrNull() ?: TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN)
+                    .coerceIn(100, 300)
+                overheatSmaLen = inputOverheatSmaLen.toString()
                 isUpdating = true
 
                 CoroutineScope(Dispatchers.Main).launch {
@@ -117,6 +139,7 @@ fun PriceInputScreen() {
                             prefs.edit(commit = true) {
                                 putFloat("user_avg_price", inputPrice)
                                 putString("user_position", selectedPos)
+                                putInt("tqqq_overheat_sma_len", inputOverheatSmaLen)
 
                                 if (isCashSelected) {
                                     putFloat("last_entry_price", 0f)
@@ -132,6 +155,7 @@ fun PriceInputScreen() {
                                 Log.d("WITTQ_DEBUG", "Saved: avgPrice=$saved")
                             }
                         Log.d("WITTQ_DEBUG", "Saved: position=$selectedPos, price=$inputPrice")
+                        Log.d("WITTQ_DEBUG", "Saved: overheatSmaLen=$inputOverheatSmaLen")
                         }
                     // 3. 위젯 업데이트 명령을 가장 우선순위 높게 호출
                         delay(100)
@@ -173,7 +197,7 @@ fun PriceInputScreen() {
         }
         if (!isCashSelected) {
             Text(
-                text = "현재 설정: $selectedPos @ $$avgPrice",
+                text = "현재 설정: $selectedPos @ $$avgPrice / 과열 SMA $overheatSmaLen",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 16.dp)

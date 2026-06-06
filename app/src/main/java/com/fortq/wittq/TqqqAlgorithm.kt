@@ -153,6 +153,8 @@ object AGTQStrategy {
 
 
 object TqqqAlgorithm {
+    const val DEFAULT_OVERHEAT_SMA_LEN = 200
+
     private const val VOL_RISK_LIMIT = 5.5
     private const val LOW_EXPOSURE = 66.67
     private const val SPY_RISK_RATIO = 1.0015
@@ -192,6 +194,7 @@ object TqqqAlgorithm {
         finalTrailArmed: Boolean = false,
         finalTrailHit: Boolean = false,
         overheatMaxDisp: Double = 0.0,
+        overheatSmaLen: Int = DEFAULT_OVERHEAT_SMA_LEN,
         currentTimeMs: Long = System.currentTimeMillis(),
     ): AlgoResult {
         val tqqqCurrent = tPrices.lastOrNull() ?: 0.0
@@ -199,11 +202,14 @@ object TqqqAlgorithm {
         val vixClose = vixPrices.lastOrNull() ?: 0.0
 
         val tqqqMA200 = tPrices.takeLast(200).average()
+        val safeOverheatSmaLen = overheatSmaLen.coerceIn(100, 300)
+        val tqqqOverheatMA = tPrices.takeLast(safeOverheatSmaLen).average()
         val spyMA200 = spyPrices.takeLast(200).average()
         val qqqMA3 = qPrices.takeLast(3).average()
         val qqqMA161 = qPrices.takeLast(161).average()
 
         val disparityTQQQ = (tqqqCurrent / tqqqMA200) * 100
+        val overheatDisparity = (tqqqCurrent / tqqqOverheatMA) * 100
         val vol20 = calculateVolatility(tPrices, 20)
         val qqqRsi = calculateRSI(qPrices, 14)
 
@@ -227,6 +233,7 @@ object TqqqAlgorithm {
         val isReady = !qqqRsi.isNaN() &&
             qPrices.size >= 161 &&
             tPrices.size >= 200 &&
+            tPrices.size >= safeOverheatSmaLen &&
             spyPrices.size >= 200 &&
             vixPrices.isNotEmpty()
 
@@ -352,19 +359,19 @@ object TqqqAlgorithm {
                 }
 
                 if (sameRatio(targetRatio, 100.0)) {
-                    if (disparityTQQQ >= DEEP_DISP) {
-                        nextOverheatMaxDisp = maxOf(nextOverheatMaxDisp, disparityTQQQ)
+                    if (overheatDisparity >= DEEP_DISP) {
+                        nextOverheatMaxDisp = maxOf(nextOverheatMaxDisp, overheatDisparity)
                     }
-                    if (disparityTQQQ >= FINAL_TRAIL_ARM_DISP) {
+                    if (overheatDisparity >= FINAL_TRAIL_ARM_DISP) {
                         nextFinalTrailArmed = true
-                        nextOverheatMaxDisp = maxOf(nextOverheatMaxDisp, disparityTQQQ)
+                        nextOverheatMaxDisp = maxOf(nextOverheatMaxDisp, overheatDisparity)
                     }
                     if (nextFinalTrailArmed && nextOverheatMaxDisp > 0.0 &&
-                        disparityTQQQ <= nextOverheatMaxDisp - FINAL_TRAIL_GIVEBACK
+                        overheatDisparity <= nextOverheatMaxDisp - FINAL_TRAIL_GIVEBACK
                     ) {
                         nextFinalTrailHit = true
                     }
-                    if (disparityTQQQ < MILD_DISP) {
+                    if (overheatDisparity < MILD_DISP) {
                         nextFinalTrailArmed = false
                         nextFinalTrailHit = false
                         nextOverheatMaxDisp = 0.0
@@ -378,10 +385,10 @@ object TqqqAlgorithm {
                 // Late de-risk 2.5 + soft runner 10 logic.
                 if (sameRatio(targetRatio, 100.0)) {
                     val profitHit = lastSignalEntryPrice > 0 && tqqqCurrent >= lastSignalEntryPrice * PROFIT_TRIM_RATIO
-                    val mildHit = disparityTQQQ >= MILD_DISP
-                    val deepHit = disparityTQQQ >= DEEP_DISP
+                    val mildHit = overheatDisparity >= MILD_DISP
+                    val deepHit = overheatDisparity >= DEEP_DISP
                     targetRatio = when {
-                        disparityTQQQ >= EXIT_DISP -> 0.0
+                        overheatDisparity >= EXIT_DISP -> 0.0
                         nextFinalTrailHit -> FINAL_TRAIL_EXPOSURE
                         deepHit -> DEEP_EXPOSURE
                         mildHit -> MILD_EXPOSURE
