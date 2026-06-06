@@ -32,6 +32,8 @@ data class AlgoResult(
     val finalTrailArmed: Boolean = false,
     val finalTrailHit: Boolean = false,
     val overheatMaxDisp: Double = 0.0,
+    val c3ReleaseActive: Boolean = false,
+    val qqqBullStreak: Int = 0,
 )
 
 data class LinRegResult(
@@ -179,6 +181,9 @@ object TqqqAlgorithm {
     private const val VIX_LOCK_TRIGGER = 45.5
     private const val VIX_UNLOCK_LEVEL = 28.5
     private const val VIX_UNLOCK_DAYS = 3
+    private const val USE_C3_RELEASE_GATE = true
+    private const val C3_RELEASE_RSI = 50.0
+    private const val C3_RELEASE_TREND_DAYS = 10
 
     fun calculate(
         qPrices: List<Double>,
@@ -194,6 +199,8 @@ object TqqqAlgorithm {
         finalTrailArmed: Boolean = false,
         finalTrailHit: Boolean = false,
         overheatMaxDisp: Double = 0.0,
+        c3ReleaseActive: Boolean = false,
+        qqqBullStreak: Int = 0,
         overheatSmaLen: Int = DEFAULT_OVERHEAT_SMA_LEN,
         currentTimeMs: Long = System.currentTimeMillis(),
     ): AlgoResult {
@@ -228,6 +235,7 @@ object TqqqAlgorithm {
         var nextFinalTrailArmed = finalTrailArmed
         var nextFinalTrailHit = finalTrailHit
         var nextOverheatMaxDisp = overheatMaxDisp
+        var nextC3ReleaseActive = c3ReleaseActive
 
         // [작동 우선 순위 1, 2, 3] 강제 탈출 조건
         val isReady = !qqqRsi.isNaN() &&
@@ -239,6 +247,11 @@ object TqqqAlgorithm {
 
         val isTqqqBullish = tqqqMA200 > 0 && tqqqCurrent > tqqqMA200
         val isQqqBullish = qqqMA3 > qqqMA161
+        val nextQqqBullStreak = if (isReady) {
+            if (isQqqBullish) qqqBullStreak + 1 else 0
+        } else {
+            0
+        }
         val isVolatilityRisk = vol20 > VOL_RISK_LIMIT
         val isSpyDisparityRisk = spyMA200 > 0 && (spyCurrent / spyMA200) <= SPY_RISK_RATIO
         val rawDrawdownRisk = if (lastSignalEntryPrice > 0) {
@@ -294,6 +307,7 @@ object TqqqAlgorithm {
                 actionTitle = "ESCAPE"
                 actionDesc = "VIX Panic"
                 actionColor = 0xFFFF453A
+                nextC3ReleaseActive = false
             }
             // 1-a) VIX lock remains active after panic until calm days complete.
             vixHardZeroActive -> {
@@ -301,6 +315,7 @@ object TqqqAlgorithm {
                 actionTitle = "VIX LOCK"
                 actionDesc = "Hard Zero"
                 actionColor = 0xFFFF453A
+                nextC3ReleaseActive = false
             }
             // 1) 변동성 Risk
             isVolatilityRisk -> {
@@ -308,6 +323,7 @@ object TqqqAlgorithm {
                 actionTitle = "ESCAPE"
                 actionDesc = "Overheat"
                 actionColor = 0xFFFF453A
+                nextC3ReleaseActive = false
             }
             // 2) SPY 이격도 Risk
             isSpyDisparityRisk -> {
@@ -315,6 +331,7 @@ object TqqqAlgorithm {
                 actionTitle = "ESCAPE"
                 actionDesc = "SPY Weak"
                 actionColor = 0xFFFF453A
+                nextC3ReleaseActive = false
             }
             // 3) 강제 탈출 (손절)
             hardDrawdownRisk -> {
@@ -322,6 +339,7 @@ object TqqqAlgorithm {
                 actionTitle = "STOP"
                 actionDesc = "Hard DD"
                 actionColor = 0xFFFF453A
+                nextC3ReleaseActive = false
             }
             // 3-a) Soft stop keeps a small runner instead of forcing cash.
             softStopHit -> {
@@ -329,6 +347,7 @@ object TqqqAlgorithm {
                 actionTitle = "SOFT STOP"
                 actionDesc = "Runner ${formatRatio(SOFT_STOP_RUNNER_EXPOSURE)}%"
                 actionColor = 0xFFFFCC00
+                nextC3ReleaseActive = USE_C3_RELEASE_GATE
                 nextFinalTrailArmed = false
                 nextFinalTrailHit = false
                 nextOverheatMaxDisp = 0.0
@@ -356,6 +375,15 @@ object TqqqAlgorithm {
                     entry10 && specialEntry && allowScaleUp -> 100.0
                     entry10 -> LOW_EXPOSURE
                     else -> 0.0
+                }
+
+                val c3ReleasePass = qqqRsi >= C3_RELEASE_RSI && nextQqqBullStreak >= C3_RELEASE_TREND_DAYS
+                if (nextC3ReleaseActive && targetRatio > 0.0) {
+                    if (c3ReleasePass) {
+                        nextC3ReleaseActive = false
+                    } else {
+                        targetRatio = minOf(targetRatio, SOFT_STOP_RUNNER_EXPOSURE)
+                    }
                 }
 
                 if (sameRatio(targetRatio, 100.0)) {
@@ -401,6 +429,12 @@ object TqqqAlgorithm {
                     nextFinalTrailArmed = false
                     nextFinalTrailHit = false
                     nextOverheatMaxDisp = 0.0
+                }
+                if (nextC3ReleaseActive && targetRatio >= 100.0) {
+                    nextC3ReleaseActive = false
+                }
+                if (sameRatio(targetRatio, 0.0) && !coolingActive) {
+                    nextC3ReleaseActive = false
                 }
 
                 // UI 메시지 설정
@@ -461,6 +495,8 @@ object TqqqAlgorithm {
             finalTrailArmed = nextFinalTrailArmed,
             finalTrailHit = nextFinalTrailHit,
             overheatMaxDisp = nextOverheatMaxDisp,
+            c3ReleaseActive = nextC3ReleaseActive,
+            qqqBullStreak = nextQqqBullStreak,
         )
     }
 

@@ -148,6 +148,8 @@ fun PriceInputScreen() {
                                     putLong("last_force_exit_time", 0L)
                                     putBoolean("vix_lock", false)
                                     putInt("vix_calm_days", 0)
+                                    putBoolean("c3_release_active", false)
+                                    putInt("qqq_bull_streak", 0)
                                     putInt("last_ratio", 0)
                                     putString("last_signal_desc", "-")
                                 }

@@ -69,6 +69,8 @@ class StockWidget : GlanceAppWidget() {
         private const val KEY_FINAL_TRAIL_HIT = "final_trail_hit"
         private const val KEY_OVERHEAT_MAX_DISP = "overheat_max_disp"
         private const val KEY_TQQQ_OVERHEAT_SMA_LEN = "tqqq_overheat_sma_len"
+        private const val KEY_C3_RELEASE_ACTIVE = "c3_release_active"
+        private const val KEY_QQQ_BULL_STREAK = "qqq_bull_streak"
     }
 
     // 3. SizeMode 적용: 기기별 다양한 4x2 사이즈에 대응
@@ -93,6 +95,8 @@ class StockWidget : GlanceAppWidget() {
         val finalTrailHit = prefs.getBoolean(KEY_FINAL_TRAIL_HIT, false)
         val overheatMaxDisp = prefs.getFloat(KEY_OVERHEAT_MAX_DISP, 0f).toDouble()
         val overheatSmaLen = prefs.getInt(KEY_TQQQ_OVERHEAT_SMA_LEN, TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN).coerceIn(100, 300)
+        val c3ReleaseActive = prefs.getBoolean(KEY_C3_RELEASE_ACTIVE, false)
+        val qqqBullStreak = prefs.getInt(KEY_QQQ_BULL_STREAK, 0)
         var signalDesc = "-"
         var effectiveSignalEntryPrice = 0.0
         var effectiveLastRatio = 0.0
@@ -134,6 +138,8 @@ class StockWidget : GlanceAppWidget() {
                 val effectiveFinalTrailArmed = recoveredState?.finalTrailArmed ?: finalTrailArmed
                 val effectiveFinalTrailHit = recoveredState?.finalTrailHit ?: finalTrailHit
                 val effectiveOverheatMaxDisp = recoveredState?.overheatMaxDisp ?: overheatMaxDisp
+                val effectiveC3ReleaseActive = recoveredState?.c3ReleaseActive ?: c3ReleaseActive
+                val effectiveQqqBullStreak = recoveredState?.qqqBullStreak ?: qqqBullStreak
                 val result = TqqqAlgorithm.calculate(
                     qPrices = qHis,
                     tPrices = tHis,
@@ -148,6 +154,8 @@ class StockWidget : GlanceAppWidget() {
                     finalTrailArmed = effectiveFinalTrailArmed,
                     finalTrailHit = effectiveFinalTrailHit,
                     overheatMaxDisp = effectiveOverheatMaxDisp,
+                    c3ReleaseActive = effectiveC3ReleaseActive,
+                    qqqBullStreak = effectiveQqqBullStreak,
                     overheatSmaLen = overheatSmaLen,
                     currentTimeMs = nowMs
                 )
@@ -182,6 +190,8 @@ class StockWidget : GlanceAppWidget() {
                         putBoolean(KEY_FINAL_TRAIL_ARMED, recoveredState.finalTrailArmed)
                         putBoolean(KEY_FINAL_TRAIL_HIT, recoveredState.finalTrailHit)
                         putFloat(KEY_OVERHEAT_MAX_DISP, recoveredState.overheatMaxDisp.toFloat())
+                        putBoolean(KEY_C3_RELEASE_ACTIVE, recoveredState.c3ReleaseActive)
+                        putInt(KEY_QQQ_BULL_STREAK, recoveredState.qqqBullStreak)
                     }
                 }
 
@@ -622,7 +632,9 @@ class StockWidget : GlanceAppWidget() {
         val vixCalmDays: Int,
         val finalTrailArmed: Boolean,
         val finalTrailHit: Boolean,
-        val overheatMaxDisp: Double
+        val overheatMaxDisp: Double,
+        val c3ReleaseActive: Boolean,
+        val qqqBullStreak: Int
     )
 
     private fun recoverHistoricalSignalState(
@@ -659,6 +671,8 @@ class StockWidget : GlanceAppWidget() {
         var finalTrailArmed = false
         var finalTrailHit = false
         var overheatMaxDisp = 0.0
+        var c3ReleaseActive = false
+        var qqqBullStreak = 0
 
         for (index in series.timestamps.indices) {
             val result = TqqqAlgorithm.calculate(
@@ -675,6 +689,8 @@ class StockWidget : GlanceAppWidget() {
                 finalTrailArmed = finalTrailArmed,
                 finalTrailHit = finalTrailHit,
                 overheatMaxDisp = overheatMaxDisp,
+                c3ReleaseActive = c3ReleaseActive,
+                qqqBullStreak = qqqBullStreak,
                 overheatSmaLen = overheatSmaLen,
                 currentTimeMs = series.timestamps[index]
             )
@@ -715,6 +731,8 @@ class StockWidget : GlanceAppWidget() {
             finalTrailArmed = result.finalTrailArmed
             finalTrailHit = result.finalTrailHit
             overheatMaxDisp = result.overheatMaxDisp
+            c3ReleaseActive = result.c3ReleaseActive
+            qqqBullStreak = result.qqqBullStreak
             lastRatio = currentRatio
         }
 
@@ -728,7 +746,9 @@ class StockWidget : GlanceAppWidget() {
             vixCalmDays = vixCalmDays,
             finalTrailArmed = finalTrailArmed,
             finalTrailHit = finalTrailHit,
-            overheatMaxDisp = overheatMaxDisp
+            overheatMaxDisp = overheatMaxDisp,
+            c3ReleaseActive = c3ReleaseActive,
+            qqqBullStreak = qqqBullStreak
         )
     }
 
