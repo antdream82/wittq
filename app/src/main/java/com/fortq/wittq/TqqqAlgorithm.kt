@@ -168,14 +168,14 @@ object TqqqAlgorithm {
     private const val SPECIAL_SLOPE_TH = 0.11
     private const val SPECIAL_DISP_MAX = 98.8
     private const val SPECIAL_VOL_MAX = 6.0
-    private const val PROFIT_TRIM_RATIO = 1.165
-    private const val PROFIT_EXPOSURE = 100.0
-    private const val MILD_DISP = 107.0
+    private const val PROFIT_TRIM_RATIO = 1.180
+    private const val PROFIT_EXPOSURE = 80.0
+    private const val MILD_DISP = 108.0
     private const val MILD_EXPOSURE = 100.0
     private const val DEEP_DISP = 143.0
     private const val DEEP_EXPOSURE = 2.5
     private const val FINAL_TRAIL_ARM_DISP = 152.5
-    private const val FINAL_TRAIL_GIVEBACK = 8.0
+    private const val FINAL_TRAIL_GIVEBACK = 8.5
     private const val FINAL_TRAIL_EXPOSURE = 2.5
     private const val EXIT_DISP = 156.5
     private const val COOLDOWN_DAYS = 10
@@ -364,7 +364,7 @@ object TqqqAlgorithm {
             // 5) 진입 조건 및 6) 단계적 감량
             else -> {
                 // 진입 조건 판별
-                val entry100 = disparityTQQQ >= ENTRY100_DISP
+                val entry100 = isQqqBullish && disparityTQQQ >= ENTRY100_DISP
                 val entry10 = qqqMA3 > qqqMA161 && tqqqCurrent < tqqqMA200
                 val specialEntry = (tqDisSlope >= SPECIAL_SLOPE_TH) &&
                     (disparityTQQQ <= SPECIAL_DISP_MAX) &&
