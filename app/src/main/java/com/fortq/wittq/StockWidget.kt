@@ -704,7 +704,7 @@ class StockWidget : GlanceAppWidget() {
             val toCash = sameRatio(currentRatio, 0.0)
             val meaningfulReduce = (wasTqqqTier && toLowExposure) || (wasLowExposure && toCash) || (wasTqqqTier && toCash)
             val forceExitNow = exitedToCash &&
-                (result.actionTitle == "ESCAPE" || result.actionTitle == "STOP" || result.actionTitle == "VIX LOCK")
+                (result.isVolatilityRisk || result.isSpyRisk || result.isHardDrawdownRisk || result.isVixPanic)
             val cooldownTrigger = meaningfulReduce || forceExitNow
             val cooldownDone = hadForceExit && result.cooldownDaysLeft == 0 && result.rsi >= 41.0
 

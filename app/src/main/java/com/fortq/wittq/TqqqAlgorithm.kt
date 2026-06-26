@@ -28,6 +28,8 @@ data class AlgoResult(
     val vixCalmDays: Int = 0,
     val isVixPanic: Boolean = false,
     val isHardDrawdownRisk: Boolean = false,
+    val isVolatilityRisk: Boolean = false,
+    val isSpyRisk: Boolean = false,
     val isSoftStop: Boolean = false,
     val finalTrailArmed: Boolean = false,
     val finalTrailHit: Boolean = false,
@@ -222,9 +224,7 @@ object TqqqAlgorithm {
         val vol20 = calculateVolatility(tPrices, 20)
         val qqqRsi = calculateRSI(qPrices, 14)
 
-        val tqMA200List = calculateMA(tPrices, 200, 45)
-        val tqPriceList = tPrices.takeLast(45)
-        val disparityList = tqPriceList.zip(tqMA200List) { price, ma -> (price / ma) * 100 }
+        val disparityList = calculateRollingDisparity(tPrices, 200, 45)
 
         val tqDisSlopeResult = calculateSlope(disparityList)
         val tqDisSlope = tqDisSlopeResult.slope
@@ -493,6 +493,8 @@ object TqqqAlgorithm {
             vixCalmDays = nextVixCalmDays,
             isVixPanic = vixPanicSell,
             isHardDrawdownRisk = hardDrawdownRisk,
+            isVolatilityRisk = isVolatilityRisk,
+            isSpyRisk = isSpyDisparityRisk,
             isSoftStop = softStopHit,
             finalTrailArmed = nextFinalTrailArmed,
             finalTrailHit = nextFinalTrailHit,
@@ -568,11 +570,13 @@ object TqqqAlgorithm {
         val rs = avgGain / avgLoss
         return 100.0 - (100.0 / (1.0 + rs))
     }
-    private fun calculateMA(prices: List<Double>, period: Int, count: Int): List<Double> {
-        if (prices.size < period) return emptyList()
-        return List(count) { i ->
-            val endIdx = prices.size - count + i
-            prices.subList((endIdx - period + 1).coerceAtLeast(0), endIdx + 1).average()
+    private fun calculateRollingDisparity(prices: List<Double>, maPeriod: Int, count: Int): List<Double> {
+        if (prices.size < maPeriod + count - 1) return emptyList()
+        val startIdx = prices.size - count
+        return List(count) { offset ->
+            val endIdx = startIdx + offset
+            val ma = prices.subList(endIdx - maPeriod + 1, endIdx + 1).average()
+            prices[endIdx] / ma * 100
         }
     }
 
