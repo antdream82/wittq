@@ -160,6 +160,7 @@ object AGTQStrategy {
 
 object TqqqAlgorithm {
     const val DEFAULT_OVERHEAT_SMA_LEN = 200
+    const val DEFAULT_COOLDOWN_DAYS = 10
 
     private const val VOL_RISK_LIMIT = 5.5
     private const val LOW_EXPOSURE = 66.67
@@ -180,7 +181,6 @@ object TqqqAlgorithm {
     private const val FINAL_TRAIL_GIVEBACK = 8.5
     private const val FINAL_TRAIL_EXPOSURE = 2.5
     private const val EXIT_DISP = 156.5
-    private const val COOLDOWN_DAYS = 10
     private const val COOLDOWN_RSI = 41.0
     private const val VIX_LOCK_TRIGGER = 45.5
     private const val VIX_UNLOCK_LEVEL = 28.5
@@ -206,6 +206,7 @@ object TqqqAlgorithm {
         c3ReleaseActive: Boolean = false,
         qqqBullStreak: Int = 0,
         overheatSmaLen: Int = DEFAULT_OVERHEAT_SMA_LEN,
+        cooldownDays: Int = DEFAULT_COOLDOWN_DAYS,
         currentTimeMs: Long = System.currentTimeMillis(),
     ): AlgoResult {
         val tqqqCurrent = tPrices.lastOrNull() ?: 0.0
@@ -214,6 +215,7 @@ object TqqqAlgorithm {
 
         val tqqqMA200 = tPrices.takeLast(200).average()
         val safeOverheatSmaLen = overheatSmaLen.coerceIn(100, 300)
+        val safeCooldownDays = cooldownDays.coerceIn(0, 30)
         val tqqqOverheatMA = tPrices.takeLast(safeOverheatSmaLen).average()
         val spyMA200 = spyPrices.takeLast(200).average()
         val qqqMA3 = qPrices.takeLast(3).average()
@@ -260,7 +262,7 @@ object TqqqAlgorithm {
             tqqqCurrent <= lastSignalEntryPrice * DRAWDOWN_STOP_RATIO
         } else false
 
-        val cooldownMillis = COOLDOWN_DAYS * 24L * 60L * 60L * 1000L
+        val cooldownMillis = safeCooldownDays * 24L * 60L * 60L * 1000L
         val coolingActive = hadForceExit && lastForceExitTime > 0L && (currentTimeMs - lastForceExitTime) < cooldownMillis
         val remainingMillis = if (coolingActive) {
             (cooldownMillis - (currentTimeMs - lastForceExitTime)).coerceAtLeast(0L)

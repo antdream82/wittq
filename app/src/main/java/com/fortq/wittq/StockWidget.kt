@@ -69,6 +69,7 @@ class StockWidget : GlanceAppWidget() {
         private const val KEY_FINAL_TRAIL_HIT = "final_trail_hit"
         private const val KEY_OVERHEAT_MAX_DISP = "overheat_max_disp"
         private const val KEY_TQQQ_OVERHEAT_SMA_LEN = "tqqq_overheat_sma_len"
+        private const val KEY_TQQQ_COOLDOWN_DAYS = "tqqq_cooldown_days"
         private const val KEY_C3_RELEASE_ACTIVE = "c3_release_active"
         private const val KEY_QQQ_BULL_STREAK = "qqq_bull_streak"
     }
@@ -95,6 +96,7 @@ class StockWidget : GlanceAppWidget() {
         val finalTrailHit = prefs.getBoolean(KEY_FINAL_TRAIL_HIT, false)
         val overheatMaxDisp = prefs.getFloat(KEY_OVERHEAT_MAX_DISP, 0f).toDouble()
         val overheatSmaLen = prefs.getInt(KEY_TQQQ_OVERHEAT_SMA_LEN, TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN).coerceIn(100, 300)
+        val cooldownDays = prefs.getInt(KEY_TQQQ_COOLDOWN_DAYS, TqqqAlgorithm.DEFAULT_COOLDOWN_DAYS).coerceIn(0, 30)
         val c3ReleaseActive = prefs.getBoolean(KEY_C3_RELEASE_ACTIVE, false)
         val qqqBullStreak = prefs.getInt(KEY_QQQ_BULL_STREAK, 0)
         var signalDesc = "-"
@@ -118,7 +120,15 @@ class StockWidget : GlanceAppWidget() {
                     throw Exception("Data empty")
                 }
 
-                val recoveredState = recoverHistoricalSignalState(qData, tqData, spyData, vixData, nowMs, overheatSmaLen = overheatSmaLen)
+                val recoveredState = recoverHistoricalSignalState(
+                    qData,
+                    tqData,
+                    spyData,
+                    vixData,
+                    nowMs,
+                    overheatSmaLen = overheatSmaLen,
+                    cooldownDays = cooldownDays
+                )
                 val previousCloseState = recoverHistoricalSignalState(
                     qData = qData,
                     tData = tqData,
@@ -126,7 +136,8 @@ class StockWidget : GlanceAppWidget() {
                     vixData = vixData,
                     nowMs = nowMs,
                     dropLatestBar = true,
-                    overheatSmaLen = overheatSmaLen
+                    overheatSmaLen = overheatSmaLen,
+                    cooldownDays = cooldownDays
                 )
 
                 effectiveSignalEntryPrice = recoveredState?.signalEntryPrice ?: persistedSignalEntryPrice
@@ -157,6 +168,7 @@ class StockWidget : GlanceAppWidget() {
                     c3ReleaseActive = effectiveC3ReleaseActive,
                     qqqBullStreak = effectiveQqqBullStreak,
                     overheatSmaLen = overheatSmaLen,
+                    cooldownDays = cooldownDays,
                     currentTimeMs = nowMs
                 )
 
@@ -644,7 +656,8 @@ class StockWidget : GlanceAppWidget() {
         vixData: MarketData,
         nowMs: Long = System.currentTimeMillis(),
         dropLatestBar: Boolean = false,
-        overheatSmaLen: Int = TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN
+        overheatSmaLen: Int = TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN,
+        cooldownDays: Int = TqqqAlgorithm.DEFAULT_COOLDOWN_DAYS
     ): RecoveredSignalState? {
         val alignedSeries = alignHistoricalSeries(qData, tData, spyData, vixData, nowMs) ?: return null
         val series = if (dropLatestBar) {
@@ -692,6 +705,7 @@ class StockWidget : GlanceAppWidget() {
                 c3ReleaseActive = c3ReleaseActive,
                 qqqBullStreak = qqqBullStreak,
                 overheatSmaLen = overheatSmaLen,
+                cooldownDays = cooldownDays,
                 currentTimeMs = series.timestamps[index]
             )
 

@@ -56,6 +56,13 @@ fun PriceInputScreen() {
                 .toString()
         )
     }
+    var cooldownDays by remember {
+        mutableStateOf(
+            prefs.getInt("tqqq_cooldown_days", TqqqAlgorithm.DEFAULT_COOLDOWN_DAYS)
+                .coerceIn(0, 30)
+                .toString()
+        )
+    }
 
     val posOptions = listOf("TQQQ", "CASH")
     val isCashSelected = selectedPos == "CASH"
@@ -120,6 +127,18 @@ fun PriceInputScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        OutlinedTextField(
+            value = cooldownDays,
+            onValueChange = { value -> cooldownDays = value.filter { it.isDigit() }.take(2) },
+            label = { Text("TQQQ 쿨다운 기간(일)") },
+            supportingText = { Text("기본값 10, 허용 범위 0-30 / 실제 날짜 기준") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         Button(
             onClick = {
                 if (isUpdating) return@Button
@@ -130,6 +149,9 @@ fun PriceInputScreen() {
                 val inputOverheatSmaLen = (overheatSmaLen.toIntOrNull() ?: TqqqAlgorithm.DEFAULT_OVERHEAT_SMA_LEN)
                     .coerceIn(100, 300)
                 overheatSmaLen = inputOverheatSmaLen.toString()
+                val inputCooldownDays = (cooldownDays.toIntOrNull() ?: TqqqAlgorithm.DEFAULT_COOLDOWN_DAYS)
+                    .coerceIn(0, 30)
+                cooldownDays = inputCooldownDays.toString()
                 isUpdating = true
 
                 CoroutineScope(Dispatchers.Main).launch {
@@ -140,6 +162,7 @@ fun PriceInputScreen() {
                                 putFloat("user_avg_price", inputPrice)
                                 putString("user_position", selectedPos)
                                 putInt("tqqq_overheat_sma_len", inputOverheatSmaLen)
+                                putInt("tqqq_cooldown_days", inputCooldownDays)
 
                                 if (isCashSelected) {
                                     putFloat("last_entry_price", 0f)
@@ -158,6 +181,7 @@ fun PriceInputScreen() {
                             }
                         Log.d("WITTQ_DEBUG", "Saved: position=$selectedPos, price=$inputPrice")
                         Log.d("WITTQ_DEBUG", "Saved: overheatSmaLen=$inputOverheatSmaLen")
+                        Log.d("WITTQ_DEBUG", "Saved: cooldownDays=$inputCooldownDays")
                         }
                     // 3. 위젯 업데이트 명령을 가장 우선순위 높게 호출
                         delay(100)
@@ -199,7 +223,7 @@ fun PriceInputScreen() {
         }
         if (!isCashSelected) {
             Text(
-                text = "현재 설정: $selectedPos @ $$avgPrice / 과열 SMA $overheatSmaLen",
+                text = "현재 설정: $selectedPos @ $$avgPrice / 과열 SMA $overheatSmaLen / 쿨다운 ${cooldownDays}일",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 16.dp)
