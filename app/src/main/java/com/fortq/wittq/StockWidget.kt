@@ -372,7 +372,7 @@ class StockWidget : GlanceAppWidget() {
             else -> res.actionDesc
         }
         val cooldownState = when {
-            isCooling && res.cooldownDaysLeft > 0 -> "${res.cooldownDaysLeft}D left"
+            res.cooldownDaysLeft > 0 -> "${res.cooldownDaysLeft}D left"
             isCooling -> "COOL"
             else -> "OFF"
         }
