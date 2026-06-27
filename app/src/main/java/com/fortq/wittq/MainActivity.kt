@@ -119,7 +119,7 @@ fun PriceInputScreen() {
             value = overheatSmaLen,
             onValueChange = { value -> overheatSmaLen = value.filter { it.isDigit() }.take(3) },
             label = { Text("TQQQ 익절/과열 SMA 기간") },
-            supportingText = { Text("기본값 200, 허용 범위 100-300") },
+            supportingText = { Text("기본값 210, 허용 범위 100-300") },
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true

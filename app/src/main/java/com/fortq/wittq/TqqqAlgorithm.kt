@@ -37,7 +37,7 @@ data class AlgoResult(
     val c3ReleaseActive: Boolean = false,
     val qqqBullStreak: Int = 0,
     val overheatDisparity: Double = 0.0,
-    val overheatSmaLen: Int = 200,
+    val overheatSmaLen: Int = 210,
 )
 
 data class LinRegResult(
@@ -159,7 +159,7 @@ object AGTQStrategy {
 
 
 object TqqqAlgorithm {
-    const val DEFAULT_OVERHEAT_SMA_LEN = 200
+    const val DEFAULT_OVERHEAT_SMA_LEN = 210
     const val DEFAULT_COOLDOWN_DAYS = 10
 
     private const val VOL_RISK_LIMIT = 5.5
