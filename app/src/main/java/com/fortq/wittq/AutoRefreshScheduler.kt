@@ -59,11 +59,19 @@ object AutoRefreshScheduler {
                         else -> 0
                     }
                 )
-                val nextOpen = ZonedDateTime.of(nextMonday, open, newYorkZone)
+                val nextOpen = ZonedDateTime.of(nextMonday, open, newYorkZone).plusMinutes(15)
                 Duration.between(now, nextOpen).toMillis().coerceAtLeast(0L)
             }
-            time < open -> Duration.ofHours(4).toMillis()
-            time < close -> Duration.ofHours(1).toMillis()
+            time < open -> Duration.between(now, ZonedDateTime.of(now.toLocalDate(), open, newYorkZone).plusMinutes(15))
+                .toMillis()
+                .coerceAtLeast(0L)
+            time < close -> {
+                val currentMinutes = time.hour * 60 + time.minute
+                val nextQuarterMinutes = ((currentMinutes / 15) + 1) * 15
+                val targetTime = LocalTime.of(nextQuarterMinutes / 60, nextQuarterMinutes % 60)
+                val nextRefresh = ZonedDateTime.of(now.toLocalDate(), targetTime, newYorkZone)
+                Duration.between(now, nextRefresh).toMillis().coerceAtLeast(0L)
+            }
             time < graceEnd -> Duration.ofMinutes(20).toMillis()
             else -> Duration.ofHours(4).toMillis()
         }
