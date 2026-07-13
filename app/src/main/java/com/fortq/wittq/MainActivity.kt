@@ -1,11 +1,19 @@
 package com.fortq.wittq
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -16,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +55,34 @@ class MainActivity : ComponentActivity() {
 fun PriceInputScreen() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE) }
+    var showBatteryExemptionPrompt by remember { mutableStateOf(false) }
+
+    fun requestBatteryExemptionIfNeeded() {
+        val powerManager = context.getSystemService(PowerManager::class.java)
+        if (!powerManager.isIgnoringBatteryOptimizations(context.packageName) &&
+            !prefs.getBoolean("battery_exemption_prompted", false)
+        ) {
+            showBatteryExemptionPrompt = true
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        requestBatteryExemptionIfNeeded()
+    }
+
+    LaunchedEffect(Unit) {
+        val notificationPermissionNeeded = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !prefs.getBoolean("notification_permission_prompted", false)
+        if (notificationPermissionNeeded) {
+            prefs.edit { putBoolean("notification_permission_prompted", true) }
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestBatteryExemptionIfNeeded()
+        }
+    }
 
     var avgPrice by remember { mutableStateOf(prefs.getFloat("user_avg_price", 50.0f).toString()) }
     var selectedPos by remember { mutableStateOf(prefs.getString("user_position", "TQQQ") ?: "TQQQ") }
@@ -67,6 +104,36 @@ fun PriceInputScreen() {
     val posOptions = listOf("TQQQ", "CASH")
     val isCashSelected = selectedPos == "CASH"
     var isUpdating by remember { mutableStateOf(false) }
+
+    if (showBatteryExemptionPrompt) {
+        AlertDialog(
+            onDismissRequest = {
+                prefs.edit { putBoolean("battery_exemption_prompted", true) }
+                showBatteryExemptionPrompt = false
+            },
+            title = { Text("자동 갱신 보호") },
+            text = { Text("장중 15분 자동 갱신과 포지션 알림이 절전 모드에 밀리지 않도록 witTQ를 배터리 최적화에서 제외합니다.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    prefs.edit { putBoolean("battery_exemption_prompted", true) }
+                    showBatteryExemptionPrompt = false
+                    val requestIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                    runCatching { context.startActivity(requestIntent) }
+                        .getOrElse {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                }) { Text("허용 요청") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    prefs.edit { putBoolean("battery_exemption_prompted", true) }
+                    showBatteryExemptionPrompt = false
+                }) { Text("나중에") }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier

@@ -207,6 +207,14 @@ class StockWidget : GlanceAppWidget() {
                     }
                 }
 
+                PositionChangeNotifier.notifyIfChanged(
+                    context = context,
+                    prefs = prefs,
+                    currentRatio = result.targetRatio,
+                    actionTitle = result.actionTitle,
+                    actionDesc = result.actionDesc
+                )
+
                 val chartDays = 120
                 val tMa200 = calculateMA(tHis, 200, chartDays)
                 val qMa3 = calculateMA(qHis, 3, chartDays)
