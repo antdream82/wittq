@@ -19,6 +19,9 @@ data class SoftRunner17dWidgetSnapshot(
     val tqqqSma290Ratio: Double?,
     val priceHistory: List<Double>,
     val sma290History: List<Double?>,
+    val trailingReturn1y: Double?,
+    val trailingReturn6m: Double?,
+    val trailingReturn3m: Double?,
     val statusMessage: String,
     val stale: Boolean,
     val updatedAtMillis: Long,
@@ -56,6 +59,9 @@ object SoftRunner17dSnapshotStore {
                     if (value == null) put(JSONObject.NULL) else put(value)
                 }
             })
+            putNullableDouble("trailingReturn1y", snapshot.trailingReturn1y)
+            putNullableDouble("trailingReturn6m", snapshot.trailingReturn6m)
+            putNullableDouble("trailingReturn3m", snapshot.trailingReturn3m)
             put("statusMessage", snapshot.statusMessage)
             put("stale", snapshot.stale)
             put("updatedAtMillis", snapshot.updatedAtMillis)
@@ -87,6 +93,9 @@ object SoftRunner17dSnapshotStore {
                 tqqqSma290Ratio = json.nullableDouble("tqqqSma290Ratio"),
                 priceHistory = json.getJSONArray("priceHistory").toDoubleList(),
                 sma290History = json.getJSONArray("sma290History").toNullableDoubleList(),
+                trailingReturn1y = json.nullableDouble("trailingReturn1y"),
+                trailingReturn6m = json.nullableDouble("trailingReturn6m"),
+                trailingReturn3m = json.nullableDouble("trailingReturn3m"),
                 statusMessage = json.getString("statusMessage"),
                 stale = json.getBoolean("stale"),
                 updatedAtMillis = json.getLong("updatedAtMillis"),
