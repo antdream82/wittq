@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.core.content.edit
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import retrofit2.Retrofit
@@ -186,6 +187,11 @@ object StockApiEngine {
             setLastError(context, null)
             Log.d("API_CACHE", "Fetched $symbol/$interval/$range (${data.history.size} bars)")
             data
+        } catch (e: CancellationException) {
+            // Cancellation belongs to the caller/widget lifecycle. Never turn it into
+            // a durable Yahoo error, and never delete a usable cache because of it.
+            Log.d("API_CACHE", "Cancelled Yahoo $symbol/$interval/$range fetch")
+            throw e
         } catch (e: Exception) {
             Log.e("API_ERROR", "Yahoo $symbol/$interval/$range: ${e.message}", e)
             if (cached != null && cachedUsable && now - cached.savedAtMs <= CACHE_STALE_MS) {
