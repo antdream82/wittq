@@ -51,16 +51,17 @@ jobs:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
   build-release-apk:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
-    env:
-      VERSION_CODE: ${{ github.run_number }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set monotonic version code
+        run: echo "VERSION_CODE=$((30000000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
