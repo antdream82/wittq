@@ -8,7 +8,6 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Shader
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -30,9 +29,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,27 +47,16 @@ class StockWidget : GlanceAppWidget() {
 
     @SuppressLint("RestrictedApi")
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        StockUpdateWorker.enqueue(context)
-        val snapshot = withContext(Dispatchers.IO) {
-            try {
-                SoftRunner17dDataSource.load(context)
-            } catch (e: CancellationException) {
-                // A Glance/WorkManager lifecycle cancellation is not a Yahoo or
-                // calculation failure. Propagate it so the previous widget UI
-                // remains intact instead of replacing it with a false error.
-                throw e
-            } catch (e: Exception) {
-                Log.e("SOFT_RUNNER_17D", "17d calculation failed: ${e.message}", e)
-                null
-            }
-        }
-        if (snapshot != null) SoftRunner17dNotifier.process(context, snapshot)
-        val lastUpdate = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
-        val lastError = StockApiEngine.getLastError(context)
+        // Rendering must stay local and fast. Yahoo bootstrap/refresh is performed
+        // only by StockUpdateWorker; Glance never owns a network request.
+        val snapshot = SoftRunner17dSnapshotStore.read(context)
+        val lastError = SoftRunner17dSnapshotStore.getError(context)
+        val updateTime = snapshot?.updatedAtMillis ?: System.currentTimeMillis()
+        val lastUpdate = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(updateTime))
 
         provideContent {
             if (snapshot == null) {
-                ErrorContent(lastError ?: "17d data/calculation unavailable", lastUpdate)
+                ErrorContent(lastError ?: "Initializing local 17d history...", lastUpdate)
             } else {
                 SoftRunner17dContent(
                     snapshot = snapshot,
@@ -166,16 +151,14 @@ class StockWidget : GlanceAppWidget() {
 @SuppressLint("RestrictedApi")
 @Composable
 private fun SoftRunner17dContent(
-    snapshot: SoftRunner17dAppSnapshot,
+    snapshot: SoftRunner17dWidgetSnapshot,
     chart: Bitmap?,
     lastUpdate: String,
     size: DpSize,
 ) {
     val factor = (size.width.value / 410f).coerceIn(0.65f, 1.0f)
-    val official = snapshot.official
-    val preview = snapshot.preview
-    val previewDiffers = abs(preview.finalTarget - official.finalTarget) >= 0.01
-    val officialColor = targetColor(official.finalTarget)
+    val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
+    val officialColor = targetColor(snapshot.officialTarget)
     val previewColor = if (previewDiffers) Color(0xFFFFA400) else officialColor
 
     Box(
@@ -219,7 +202,7 @@ private fun SoftRunner17dContent(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Text(
-                    "OFFICIAL ${SoftRunner17dNotifier.ratioLabel(official.finalTarget)}",
+                    "OFFICIAL ${SoftRunner17dNotifier.ratioLabel(snapshot.officialTarget)}",
                     style = TextStyle(
                         color = ColorProvider(officialColor),
                         fontSize = (18 * factor).sp,
@@ -227,7 +210,7 @@ private fun SoftRunner17dContent(
                     ),
                 )
                 Text(
-                    "PREVIEW ${SoftRunner17dNotifier.ratioLabel(preview.finalTarget)}",
+                    "PREVIEW ${SoftRunner17dNotifier.ratioLabel(snapshot.previewTarget)}",
                     style = TextStyle(
                         color = ColorProvider(previewColor),
                         fontSize = (15 * factor).sp,
@@ -235,14 +218,14 @@ private fun SoftRunner17dContent(
                     ),
                 )
                 Spacer(GlanceModifier.height((5 * factor).dp))
-                InfoLine("Reason", preview.reason.label, factor)
-                InfoLine("Runner", "${preview.runnerStatus.name}/${preview.releaseStatus.name}", factor)
-                InfoLine("Contrarian", if (preview.contrarianActive) "ACTIVE" else "OFF", factor)
-                InfoLine("HardRisk", if (preview.hardRisk) "ON" else "OFF", factor)
-                InfoLine("Cheap/Reclaim", "${flag(preview.contrarianCheap)}/${flag(preview.contrarianReclaim)}", factor)
-                InfoLine("TQQQ", String.format(Locale.US, "\$%.2f", preview.tqqqClose), factor)
-                InfoLine("SMA290", preview.tqqqSma290?.let { String.format(Locale.US, "\$%.2f", it) } ?: "-", factor)
-                InfoLine("Ratio", preview.tqqqSma290Ratio?.let { String.format(Locale.US, "%.2f%%", it * 100) } ?: "-", factor)
+                InfoLine("Reason", snapshot.reason, factor)
+                InfoLine("Runner", "${snapshot.runnerStatus}/${snapshot.releaseStatus}", factor)
+                InfoLine("Contrarian", if (snapshot.contrarianActive) "ACTIVE" else "OFF", factor)
+                InfoLine("HardRisk", if (snapshot.hardRisk) "ON" else "OFF", factor)
+                InfoLine("Cheap/Reclaim", "${flag(snapshot.contrarianCheap)}/${flag(snapshot.contrarianReclaim)}", factor)
+                InfoLine("TQQQ", String.format(Locale.US, "\$%.2f", snapshot.tqqqClose), factor)
+                InfoLine("SMA290", snapshot.tqqqSma290?.let { String.format(Locale.US, "\$%.2f", it) } ?: "-", factor)
+                InfoLine("Ratio", snapshot.tqqqSma290Ratio?.let { String.format(Locale.US, "%.2f%%", it * 100) } ?: "-", factor)
                 Spacer(GlanceModifier.defaultWeight())
                 Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     Text(
