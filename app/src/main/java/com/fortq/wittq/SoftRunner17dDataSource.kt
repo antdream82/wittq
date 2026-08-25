@@ -16,6 +16,7 @@ object SoftRunner17dDataSource {
     private val officialCutoff: LocalTime = LocalTime.of(16, 20)
 
     private const val BOOTSTRAP_RANGE = "max"
+    private const val BOOTSTRAP_FALLBACK_RANGE = "10y"
     private const val NORMAL_REFRESH_RANGE = "1mo"
     private const val MIN_BOOTSTRAP_ROWS = 290
     private const val BOOTSTRAP_RETRY_DELAY_MS = 900L
@@ -37,26 +38,36 @@ object SoftRunner17dDataSource {
                 chooseIncrementalRange(before.latestDate, today)
             }
 
-            // Keep bootstrap deterministic and gentle on Yahoo: symbols are loaded
-            // sequentially by the caller. On an empty install, retry a failed max
-            // fetch once after a short pause. Already-persisted symbols survive and
-            // will not need another max request on the next widget refresh.
+            var sourceRange = refreshRange
             var network = StockApiEngine.fetchMarketData(context, symbol, refreshRange)
-            if (network == null && !bootstrapped) {
-                Log.w("SOFT_RUNNER_17D_DB", "$symbol bootstrap failed once; retrying max")
+
+            if (!bootstrapped && (network == null || network.safeHistory().size < MIN_BOOTSTRAP_ROWS)) {
+                val receivedRows = network?.safeHistory()?.size ?: 0
+                Log.w(
+                    "SOFT_RUNNER_17D_DB",
+                    "$symbol max bootstrap returned $receivedRows rows; trying $BOOTSTRAP_FALLBACK_RANGE",
+                )
                 delay(BOOTSTRAP_RETRY_DELAY_MS)
-                network = StockApiEngine.fetchMarketData(context, symbol, refreshRange)
+                val fallback = StockApiEngine.fetchMarketData(context, symbol, BOOTSTRAP_FALLBACK_RANGE)
+                if (fallback != null && fallback.safeHistory().size >= MIN_BOOTSTRAP_ROWS) {
+                    network = fallback
+                    sourceRange = BOOTSTRAP_FALLBACK_RANGE
+                } else if (network == null && fallback != null) {
+                    // Preserve any progress even if Yahoo returned another short history.
+                    network = fallback
+                    sourceRange = BOOTSTRAP_FALLBACK_RANGE
+                }
             }
 
             if (network != null) {
-                store.upsert(symbol, network, refreshRange, nowMillis)
+                store.upsert(symbol, network, sourceRange, nowMillis)
                 val after = store.stats(symbol)
-                if (refreshRange == BOOTSTRAP_RANGE && after.rowCount >= MIN_BOOTSTRAP_ROWS) {
+                if (!bootstrapped && after.rowCount >= MIN_BOOTSTRAP_ROWS) {
                     store.markBootstrapComplete(symbol)
                 }
                 Log.d(
                     "SOFT_RUNNER_17D_DB",
-                    "$symbol refresh=$refreshRange localRows=${after.rowCount} localLatest=${after.latestDate}",
+                    "$symbol refresh=$sourceRange localRows=${after.rowCount} localLatest=${after.latestDate}",
                 )
             } else {
                 Log.w(
@@ -82,10 +93,8 @@ object SoftRunner17dDataSource {
             }
         }
 
-        // Deliberately sequential. Four simultaneous range=max calls on a fresh
-        // install made a single child failure cancel sibling fetches, producing the
-        // misleading "Parent job is Cancelling" error. Sequential persistence means
-        // each successful symbol is durable and only the missing symbol is retried.
+        // Deliberately sequential. Each successful symbol is durable, so a later
+        // Yahoo failure does not make already-completed bootstrap work repeat.
         val tqqq = loadSymbol("TQQQ")
         val qqq = loadSymbol("QQQ")
         val spy = loadSymbol("SPY")
@@ -162,7 +171,6 @@ object SoftRunner17dDataSource {
             "Insufficient aligned history (${officialDates.size} rows); $MIN_BOOTSTRAP_ROWS+ required"
         }
 
-        // Replay is local-only. No range=max network request is needed here.
         val officialBars = officialDates.map { date ->
             SoftRunner17dBar(
                 date = date,
