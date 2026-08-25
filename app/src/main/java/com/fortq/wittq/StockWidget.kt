@@ -191,7 +191,16 @@ private fun SoftRunner17dContent(
                         fontWeight = FontWeight.Bold,
                     ),
                 )
-                Spacer(GlanceModifier.height((4 * factor).dp))
+                Text(
+                    trailingReturnSummary(snapshot),
+                    modifier = GlanceModifier.fillMaxWidth(),
+                    style = TextStyle(
+                        color = ColorProvider(Color(0xFFB0B0B5)),
+                        fontSize = (9 * factor).sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+                Spacer(GlanceModifier.height((2 * factor).dp))
                 chart?.let {
                     Image(
                         provider = ImageProvider(it),
@@ -203,7 +212,7 @@ private fun SoftRunner17dContent(
                     snapshot.statusMessage,
                     style = TextStyle(
                         color = ColorProvider(if (snapshot.stale) Color(0xFFFF453A) else Color(0xFF8E8E93)),
-                        fontSize = (9 * factor).sp,
+                        fontSize = (8 * factor).sp,
                     ),
                 )
             }
@@ -218,7 +227,7 @@ private fun SoftRunner17dContent(
                     "OFFICIAL ${SoftRunner17dNotifier.ratioLabel(snapshot.officialTarget)}",
                     style = TextStyle(
                         color = ColorProvider(officialColor),
-                        fontSize = (18 * factor).sp,
+                        fontSize = (16 * factor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
@@ -226,11 +235,11 @@ private fun SoftRunner17dContent(
                     "PREVIEW ${SoftRunner17dNotifier.ratioLabel(snapshot.previewTarget)}",
                     style = TextStyle(
                         color = ColorProvider(previewColor),
-                        fontSize = (15 * factor).sp,
+                        fontSize = (13 * factor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
-                Spacer(GlanceModifier.height((5 * factor).dp))
+                Spacer(GlanceModifier.height((2 * factor).dp))
                 InfoLine("Reason", snapshot.reason, factor)
                 InfoLine("Runner", "${snapshot.runnerStatus}/${snapshot.releaseStatus}", factor)
                 InfoLine("Contrarian", if (snapshot.contrarianActive) "ACTIVE" else "OFF", factor)
@@ -239,27 +248,18 @@ private fun SoftRunner17dContent(
                 InfoLine("TQQQ", String.format(Locale.US, "\$%.2f", snapshot.tqqqClose), factor)
                 InfoLine("SMA290", snapshot.tqqqSma290?.let { String.format(Locale.US, "\$%.2f", it) } ?: "-", factor)
                 InfoLine("Ratio", snapshot.tqqqSma290Ratio?.let { String.format(Locale.US, "%.2f%%", it * 100) } ?: "-", factor)
-                Text(
-                    trailingReturnSummary(snapshot),
-                    modifier = GlanceModifier.fillMaxWidth(),
-                    style = TextStyle(
-                        color = ColorProvider(Color(0xFF8E8E93)),
-                        fontSize = (8 * factor).sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                )
-                Spacer(GlanceModifier.defaultWeight())
+                Spacer(GlanceModifier.height((2 * factor).dp))
                 Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     Text(
                         "Upd $lastUpdate",
                         modifier = GlanceModifier.defaultWeight(),
-                        style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = (8 * factor).sp),
+                        style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = (7 * factor).sp),
                     )
                     Image(
                         provider = ImageProvider(R.drawable.ic_refresh),
                         contentDescription = "Refresh 17d",
                         modifier = GlanceModifier
-                            .size((16 * factor).dp)
+                            .size((14 * factor).dp)
                             .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
                     )
                 }
@@ -274,12 +274,12 @@ private fun InfoLine(label: String, value: String, factor: Float) {
     Row(modifier = GlanceModifier.fillMaxWidth()) {
         Text(
             label,
-            style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = (10 * factor).sp),
+            style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = (9 * factor).sp),
         )
         Spacer(GlanceModifier.defaultWeight())
         Text(
             value.take(28),
-            style = TextStyle(color = ColorProvider(Color.White), fontSize = (10 * factor).sp, fontWeight = FontWeight.Bold),
+            style = TextStyle(color = ColorProvider(Color.White), fontSize = (9 * factor).sp, fontWeight = FontWeight.Bold),
         )
     }
 }
