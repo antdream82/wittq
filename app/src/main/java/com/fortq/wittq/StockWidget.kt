@@ -47,12 +47,25 @@ class StockWidget : GlanceAppWidget() {
 
     @SuppressLint("RestrictedApi")
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // Rendering must stay local and fast. Yahoo bootstrap/refresh is performed
-        // only by StockUpdateWorker; Glance never owns a network request.
+        // Rendering stays local. If there is still no good snapshot, merely ensure
+        // one cancellation-safe WorkManager bootstrap attempt; no network call is
+        // owned by Glance itself.
         val snapshot = SoftRunner17dSnapshotStore.read(context)
+        if (snapshot == null) {
+            AutoRefreshScheduler.ensureStockNow(context)
+        }
+
         val lastError = SoftRunner17dSnapshotStore.getError(context)
-        val updateTime = snapshot?.updatedAtMillis ?: System.currentTimeMillis()
-        val lastUpdate = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(updateTime))
+        val actualAttemptAt = if (snapshot != null) {
+            snapshot.updatedAtMillis
+        } else {
+            SoftRunner17dSnapshotStore.getErrorAt(context)
+        }
+        val lastUpdate = if (actualAttemptAt > 0L) {
+            SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(actualAttemptAt))
+        } else {
+            "waiting"
+        }
 
         provideContent {
             if (snapshot == null) {
@@ -265,11 +278,18 @@ private fun InfoLine(label: String, value: String, factor: Float) {
 @SuppressLint("RestrictedApi")
 @Composable
 private fun ErrorContent(message: String, lastUpdate: String) {
-    Box(modifier = GlanceModifier.fillMaxSize().background(Color(0xFF1C1C1E)), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1C1E))
+            .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("17d updating...", style = TextStyle(color = ColorProvider(Color.White)))
-            Text(message.take(120), style = TextStyle(color = ColorProvider(Color(0xFFFF453A)), fontSize = 9.sp))
-            Text(lastUpdate, style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = 9.sp))
+            Text(message.take(150), style = TextStyle(color = ColorProvider(Color(0xFFFF453A)), fontSize = 9.sp))
+            Text("Last attempt $lastUpdate", style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = 9.sp))
+            Text("Tap to retry", style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = 8.sp))
         }
     }
 }
