@@ -196,6 +196,24 @@ object SoftRunner17dDataSource {
         val officialReplay = SoftRunner17dReplay.replay(officialBars)
         val official = requireNotNull(officialReplay.latest)
 
+        // Performance uses only completed OFFICIAL rows. Same-close execution means
+        // the position decided at close t earns the TQQQ return from t to t+1.
+        val trailingReturn1y = SoftRunner17dReturns.trailingPercent(
+            officialBars,
+            officialReplay.signals,
+            months = 12,
+        )
+        val trailingReturn6m = SoftRunner17dReturns.trailingPercent(
+            officialBars,
+            officialReplay.signals,
+            months = 6,
+        )
+        val trailingReturn3m = SoftRunner17dReturns.trailingPercent(
+            officialBars,
+            officialReplay.signals,
+            months = 3,
+        )
+
         val currentPricesValid = listOf(
             tqqq.currentPrice,
             qqq.currentPrice,
@@ -245,6 +263,9 @@ object SoftRunner17dDataSource {
             previewDate = preview.date,
             priceHistory = previewBars.map { it.tqqqClose }.takeLast(120),
             sma290History = sma290.takeLast(120),
+            trailingReturn1y = trailingReturn1y,
+            trailingReturn6m = trailingReturn6m,
+            trailingReturn3m = trailingReturn3m,
             sourceLatestDates = sourceDates,
             updatedAtMillis = nowMillis,
             stale = stale,
