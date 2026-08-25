@@ -139,8 +139,13 @@ object StockApiEngine {
     ): List<Double> = fetchMarketData(context, symbol, range, interval)?.history ?: emptyList()
 
     /**
-     * Fetches Yahoo chart data. Existing callers retain the historical 2y/1d default,
-     * while the 17d engine requests range=max so a fresh install can rebuild state.
+     * Fetches Yahoo chart data.
+     *
+     * Legacy AGTQ/Snow callers use the historical 2y/1d default. Once the shared
+     * SQLite history has been bootstrapped by the market sync worker, those calls
+     * are served locally and no longer trigger duplicate 2y Yahoo downloads.
+     * Explicit ranges such as 1mo/max still go through Yahoo and feed the shared
+     * durable store via the 17d market sync path.
      */
     suspend fun fetchMarketData(
         context: Context,
@@ -150,6 +155,22 @@ object StockApiEngine {
     ): MarketData? = symbolLock(symbol, interval, range).withLock {
         val now = System.currentTimeMillis()
         pruneCachedMarketData(context, now)
+
+        val shouldUseSharedDurable =
+            interval.equals("1d", ignoreCase = true) &&
+                range.equals("2y", ignoreCase = true) &&
+                SharedMarketDataStore.isSharedSymbol(symbol)
+        if (shouldUseSharedDurable) {
+            SharedMarketDataStore.read(context, symbol)?.let { durable ->
+                setLastError(context, null)
+                Log.d(
+                    "API_CACHE",
+                    "Shared SQLite hit for $symbol/$interval/$range (${durable.history.size} bars)",
+                )
+                return@withLock durable
+            }
+        }
+
         val cached = readCachedMarketData(context, symbol, interval, range)
         val cachedUsable = cached?.data?.let { data ->
             data.safeTimestamps().isNotEmpty() && data.safeHistory().isNotEmpty()
@@ -188,8 +209,6 @@ object StockApiEngine {
             Log.d("API_CACHE", "Fetched $symbol/$interval/$range (${data.history.size} bars)")
             data
         } catch (e: CancellationException) {
-            // Cancellation belongs to the caller/widget lifecycle. Never turn it into
-            // a durable Yahoo error, and never delete a usable cache because of it.
             Log.d("API_CACHE", "Cancelled Yahoo $symbol/$interval/$range fetch")
             throw e
         } catch (e: Exception) {
