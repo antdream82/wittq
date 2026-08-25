@@ -241,7 +241,11 @@ private fun SoftRunner17dContent(
                 )
                 Spacer(GlanceModifier.height((2 * factor).dp))
                 InfoLine("Reason", snapshot.reason, factor)
-                InfoLine("Runner", "${snapshot.runnerStatus}/${snapshot.releaseStatus}", factor)
+                InfoLine(
+                    "Runner/Release",
+                    "${runnerStatusLabel(snapshot.runnerStatus)} / ${releaseStatusLabel(snapshot.releaseStatus)}",
+                    factor,
+                )
                 InfoLine("Contrarian", if (snapshot.contrarianActive) "ACTIVE" else "OFF", factor)
                 InfoLine("HardRisk", if (snapshot.hardRisk) "ON" else "OFF", factor)
                 InfoLine("Cheap/Reclaim", "${flag(snapshot.contrarianCheap)}/${flag(snapshot.contrarianReclaim)}", factor)
@@ -309,6 +313,17 @@ private fun trailingReturnSummary(snapshot: SoftRunner17dWidgetSnapshot): String
 private fun formatReturn(value: Double?): String = when {
     value == null || !value.isFinite() -> "-"
     else -> String.format(Locale.US, "%+.1f%%", value)
+}
+
+private fun runnerStatusLabel(status: String): String = when (status) {
+    "ACTIVE" -> "20% ON"
+    "TRIGGER_CONFIRMING" -> "CONFIRMING"
+    else -> "OFF"
+}
+
+private fun releaseStatusLabel(status: String): String = when (status) {
+    "PENDING" -> "PENDING"
+    else -> "NONE"
 }
 
 private fun flag(value: Boolean): String = if (value) "T" else "F"
