@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
 
 object AutoRefreshScheduler {
     private const val STOCK_WORK_NAME = "stock_auto_refresh"
+    private const val STOCK_IMMEDIATE_WORK_NAME = "stock_immediate_refresh_v2"
 
     // Previous builds maintained independent AGTQ/Snow chains. They are cancelled
     // once and all TQQQ-family widgets now share STOCK_WORK_NAME.
@@ -26,6 +27,10 @@ object AutoRefreshScheduler {
     private const val LEGACY_AGTQ_WORK_NAME = "agtq_update_work"
     private const val LEGACY_SNOW_WORK_NAME = "snow_update_work"
     private const val SHARED_MARKET_MIGRATION_FLAG = "market_sync_migrated_v3"
+
+    private const val SCHEDULER_PREFS = "MarketSyncScheduler"
+    private const val KEY_LAST_IMMEDIATE_REQUEST_MS = "last_immediate_request_ms"
+    private const val ERROR_BOOTSTRAP_ENSURE_INTERVAL_MS = 5 * 60 * 1000L
 
     private val newYorkZone: ZoneId = ZoneId.of("America/New_York")
 
@@ -100,7 +105,7 @@ object AutoRefreshScheduler {
         Log.d("AUTO_REFRESH", "Scheduled $workName in ${delayMs / 60000} min")
     }
 
-    private inline fun <reified W : androidx.work.ListenableWorker> enqueueImmediate(
+    private inline fun <reified W : androidx.work.ListenableWorker> enqueueImmediateKeep(
         context: Context,
         workName: String,
     ) {
@@ -108,8 +113,12 @@ object AutoRefreshScheduler {
             .setConstraints(constraints())
             .build()
 
-        WorkManager.getInstance(context).enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
-        Log.d("AUTO_REFRESH", "Scheduled immediate $workName")
+        // KEEP is deliberate: AppUpdateReceiver and several widget receivers can
+        // request an immediate refresh at nearly the same time. REPLACE used to
+        // cancel a bootstrap that had already started, leaving only the old error
+        // snapshot on screen.
+        WorkManager.getInstance(context).enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, request)
+        Log.d("AUTO_REFRESH", "Ensured immediate $workName")
     }
 
     fun scheduleStock(context: Context, append: Boolean = false) {
@@ -119,7 +128,24 @@ object AutoRefreshScheduler {
 
     fun refreshStockNow(context: Context) {
         migrateToSharedMarketSchedule(context)
-        enqueueImmediate<StockUpdateWorker>(context, STOCK_WORK_NAME)
+        context.applicationContext
+            .getSharedPreferences(SCHEDULER_PREFS, Context.MODE_PRIVATE)
+            .edit { putLong(KEY_LAST_IMMEDIATE_REQUEST_MS, System.currentTimeMillis()) }
+        enqueueImmediateKeep<StockUpdateWorker>(context, STOCK_IMMEDIATE_WORK_NAME)
+    }
+
+    /**
+     * Error/initialization widgets may be rendered for reasons unrelated to a real
+     * data refresh. Ensure one background bootstrap attempt without creating a
+     * render->cancel->render loop. Repeated renders within five minutes are no-ops.
+     */
+    fun ensureStockNow(context: Context) {
+        val prefs = context.applicationContext
+            .getSharedPreferences(SCHEDULER_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val last = prefs.getLong(KEY_LAST_IMMEDIATE_REQUEST_MS, 0L)
+        if (now - last < ERROR_BOOTSTRAP_ENSURE_INTERVAL_MS) return
+        refreshStockNow(context)
     }
 
     // Compatibility entry points used by the existing widget receivers/UI. They
