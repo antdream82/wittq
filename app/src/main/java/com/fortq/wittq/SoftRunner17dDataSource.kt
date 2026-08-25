@@ -8,6 +8,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
@@ -15,11 +16,13 @@ object SoftRunner17dDataSource {
     private val newYorkZone: ZoneId = ZoneId.of("America/New_York")
     private val officialCutoff: LocalTime = LocalTime.of(16, 20)
 
-    private const val BOOTSTRAP_RANGE = "max"
-    private const val BOOTSTRAP_FALLBACK_RANGE = "10y"
+    private const val BOOTSTRAP_SOURCE = "period-2010-daily"
     private const val NORMAL_REFRESH_RANGE = "1mo"
     private const val MIN_BOOTSTRAP_ROWS = 290
     private const val BOOTSTRAP_RETRY_DELAY_MS = 900L
+    private val bootstrapStartEpochSec: Long = LocalDate.of(2010, 2, 1)
+        .atStartOfDay(ZoneOffset.UTC)
+        .toEpochSecond()
 
     suspend fun load(
         context: Context,
@@ -32,31 +35,42 @@ object SoftRunner17dDataSource {
         suspend fun loadSymbol(symbol: String): MarketData {
             val before = store.stats(symbol)
             val bootstrapped = store.isBootstrapComplete(symbol) && before.rowCount >= MIN_BOOTSTRAP_ROWS
-            val refreshRange = if (!bootstrapped) {
-                BOOTSTRAP_RANGE
-            } else {
-                chooseIncrementalRange(before.latestDate, today)
-            }
 
-            var sourceRange = refreshRange
-            var network = StockApiEngine.fetchMarketData(context, symbol, refreshRange)
+            var sourceRange: String
+            var network: MarketData?
 
-            if (!bootstrapped && (network == null || network.safeHistory().size < MIN_BOOTSTRAP_ROWS)) {
-                val receivedRows = network?.safeHistory()?.size ?: 0
-                Log.w(
-                    "SOFT_RUNNER_17D_DB",
-                    "$symbol max bootstrap returned $receivedRows rows; trying $BOOTSTRAP_FALLBACK_RANGE",
+            if (!bootstrapped) {
+                // Do not use Yahoo range=max here. Long max requests can be
+                // silently coarsened to monthly data (~199 TQQQ rows since 2010).
+                // Explicit period bounds force true 1d bars from strategy inception.
+                val period2 = nowMillis / 1000L + 86_400L
+                sourceRange = BOOTSTRAP_SOURCE
+                network = StockApiEngine.fetchMarketDataPeriod(
+                    context = context,
+                    symbol = symbol,
+                    period1EpochSec = bootstrapStartEpochSec,
+                    period2EpochSec = period2,
+                    interval = "1d",
                 )
-                delay(BOOTSTRAP_RETRY_DELAY_MS)
-                val fallback = StockApiEngine.fetchMarketData(context, symbol, BOOTSTRAP_FALLBACK_RANGE)
-                if (fallback != null && fallback.safeHistory().size >= MIN_BOOTSTRAP_ROWS) {
-                    network = fallback
-                    sourceRange = BOOTSTRAP_FALLBACK_RANGE
-                } else if (network == null && fallback != null) {
-                    // Preserve any progress even if Yahoo returned another short history.
-                    network = fallback
-                    sourceRange = BOOTSTRAP_FALLBACK_RANGE
+
+                if (network == null || network.safeHistory().size < MIN_BOOTSTRAP_ROWS) {
+                    val received = network?.safeHistory()?.size ?: 0
+                    Log.w(
+                        "SOFT_RUNNER_17D_DB",
+                        "$symbol explicit-period bootstrap returned $received rows; retrying once",
+                    )
+                    delay(BOOTSTRAP_RETRY_DELAY_MS)
+                    network = StockApiEngine.fetchMarketDataPeriod(
+                        context = context,
+                        symbol = symbol,
+                        period1EpochSec = bootstrapStartEpochSec,
+                        period2EpochSec = period2,
+                        interval = "1d",
+                    )
                 }
+            } else {
+                sourceRange = chooseIncrementalRange(before.latestDate, today)
+                network = StockApiEngine.fetchMarketData(context, symbol, sourceRange)
             }
 
             if (network != null) {
@@ -72,7 +86,7 @@ object SoftRunner17dDataSource {
             } else {
                 Log.w(
                     "SOFT_RUNNER_17D_DB",
-                    "$symbol network refresh failed for $refreshRange; attempting durable local history",
+                    "$symbol network refresh failed for $sourceRange; attempting durable local history",
                 )
             }
 
@@ -110,13 +124,13 @@ object SoftRunner17dDataSource {
     }
 
     /**
-     * Chooses the smallest Yahoo range expected to overlap the retained local
-     * history. Normal use is 1mo. A device left unused for months/years expands
-     * only enough to bridge the gap; max is reserved for a truly empty/very old
-     * store.
+     * Chooses the smallest Yahoo range expected to overlap retained local history.
+     * Normal use is 1mo. A device left unused for months/years expands only enough
+     * to bridge the gap. Fresh installs never come through here; they use explicit
+     * period1/period2 bootstrap above.
      */
     internal fun chooseIncrementalRange(latestLocalDate: LocalDate?, today: LocalDate): String {
-        if (latestLocalDate == null) return BOOTSTRAP_RANGE
+        if (latestLocalDate == null) return "5y"
         val days = ChronoUnit.DAYS.between(latestLocalDate, today).coerceAtLeast(0)
         return when {
             days <= 20 -> NORMAL_REFRESH_RANGE
@@ -124,9 +138,7 @@ object SoftRunner17dDataSource {
             days <= 170 -> "6mo"
             days <= 350 -> "1y"
             days <= 700 -> "2y"
-            days <= 1_800 -> "5y"
-            days <= 3_600 -> "10y"
-            else -> BOOTSTRAP_RANGE
+            else -> "5y"
         }
     }
 
@@ -171,6 +183,7 @@ object SoftRunner17dDataSource {
             "Insufficient aligned history (${officialDates.size} rows); $MIN_BOOTSTRAP_ROWS+ required"
         }
 
+        // Replay is local-only. No long-range network request is needed here.
         val officialBars = officialDates.map { date ->
             SoftRunner17dBar(
                 date = date,
