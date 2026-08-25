@@ -11,11 +11,12 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
- * Durable on-device daily-bar store for the 17d engine.
+ * Durable on-device daily-bar store shared by 17d, AGTQ and Snow.
  *
- * The database survives normal APK updates. Yahoo range=max is therefore only
- * needed to bootstrap an empty/damaged symbol history. Normal refreshes upsert
- * a short overlapping range and reuse the retained history indefinitely.
+ * The database survives normal APK updates. Bootstrap completeness is versioned
+ * and also requires recent daily-bar density so a Yahoo response that was
+ * silently downsampled to weekly/monthly bars can never be treated as a valid
+ * daily history merely because it contains many old rows.
  */
 class SoftRunner17dHistoryStore private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
@@ -154,11 +155,32 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         }
     }
 
+    /**
+     * Valid daily data has roughly 250 US trading sessions per year. Requiring
+     * 180 rows in the 370 calendar days ending at the symbol's own latest row
+     * leaves ample holiday/data-gap tolerance while decisively rejecting
+     * weekly/monthly histories (about 52/12 rows per year).
+     */
+    fun hasDailyCadence(symbol: String): Boolean {
+        val canonicalSymbol = canonicalSymbol(symbol)
+        val latest = stats(symbol).latestDate ?: return false
+        val cutoff = latest.minusDays(370).toString()
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM $TABLE_BARS WHERE symbol = ? AND trading_date >= ? AND trading_date <= ?",
+            arrayOf(canonicalSymbol, cutoff, latest.toString()),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return false
+            return cursor.getInt(0) >= MIN_RECENT_DAILY_ROWS
+        }
+    }
+
     fun isBootstrapComplete(symbol: String): Boolean =
-        getMeta(bootstrapKey(symbol)) == BOOTSTRAP_VERSION
+        getMeta(bootstrapKey(symbol)) == BOOTSTRAP_VERSION && hasDailyCadence(symbol)
 
     fun markBootstrapComplete(symbol: String) {
-        putMeta(bootstrapKey(symbol), BOOTSTRAP_VERSION)
+        if (hasDailyCadence(symbol)) {
+            putMeta(bootstrapKey(symbol), BOOTSTRAP_VERSION)
+        }
     }
 
     fun clearSymbol(symbol: String) {
@@ -202,7 +224,12 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         private const val DB_VERSION = 1
         private const val TABLE_BARS = "daily_bars"
         private const val TABLE_META = "metadata"
-        private const val BOOTSTRAP_VERSION = "v1"
+
+        // v1 accepted row-count-only histories, allowing old QQQ/SPY/VIX monthly
+        // data to remain marked complete. v2 intentionally forces one daily-period
+        // rebootstrap for every shared symbol after upgrade.
+        private const val BOOTSTRAP_VERSION = "v2-daily-period"
+        private const val MIN_RECENT_DAILY_ROWS = 180
 
         @Volatile
         private var instance: SoftRunner17dHistoryStore? = null
