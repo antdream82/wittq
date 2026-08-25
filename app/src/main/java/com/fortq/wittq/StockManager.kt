@@ -7,11 +7,11 @@ import androidx.core.content.edit
 import com.google.gson.Gson
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.ConcurrentHashMap
 
 data class YahooResponse(val chart: YahooChart)
@@ -19,26 +19,26 @@ data class YahooChart(val result: List<YahooResultData>?)
 data class YahooResultData(
     val meta: YahooMeta,
     val indicators: YahooIndicators,
-    val timestamp: List<Long> = emptyList()
+    val timestamp: List<Long> = emptyList(),
 )
 data class YahooIndicators(val quote: List<YahooQuote>)
 data class YahooQuote(val close: List<Double?>)
 
 data class YahooMeta(
-    val regularMarketPrice: Double, // 현재가
-    val previousClose: Double
+    val regularMarketPrice: Double,
+    val previousClose: Double,
 )
 
 data class MarketData(
     val currentPrice: Double,
     val prevClose: Double,
     val history: List<Double>,
-    val timestamps: List<Long> = emptyList()
+    val timestamps: List<Long> = emptyList(),
 )
 
 data class CachedMarketData(
     val savedAtMs: Long,
-    val data: MarketData
+    val data: MarketData,
 )
 
 interface YahooApiService {
@@ -46,7 +46,7 @@ interface YahooApiService {
     suspend fun getHistory(
         @Path("symbol") symbol: String,
         @Query("interval") interval: String = "1d",
-        @Query("range") range: String = "2y"
+        @Query("range") range: String = "2y",
     ): YahooResponse
 }
 
@@ -55,6 +55,7 @@ object StockApiEngine {
     private const val CACHE_PREFIX = "market_data_"
     private const val CACHE_LAST_ERROR = "last_yahoo_error"
     private const val CACHE_TTL_MS = 15 * 60 * 1000L
+    private const val LONG_HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
     private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
     private val symbolLocks = ConcurrentHashMap<String, Mutex>()
 
@@ -69,113 +70,132 @@ object StockApiEngine {
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
 
-    private fun cacheKey(symbol: String) = "market_data_${symbol.uppercase()}"
+    private fun sanitize(value: String): String = value.uppercase().replace(Regex("[^A-Z0-9]+"), "_")
 
-    private fun removeCachedMarketData(context: Context, symbol: String) {
-        prefs(context).edit {
-            remove(cacheKey(symbol))
-        }
+    private fun cacheKey(symbol: String, interval: String, range: String): String =
+        "${CACHE_PREFIX}${sanitize(symbol)}_${sanitize(interval)}_${sanitize(range)}"
+
+    private fun removeCachedMarketData(context: Context, symbol: String, interval: String, range: String) {
+        prefs(context).edit { remove(cacheKey(symbol, interval, range)) }
     }
 
     private fun setLastError(context: Context, message: String?) {
         prefs(context).edit {
-            if (message.isNullOrBlank()) {
-                remove(CACHE_LAST_ERROR)
-            } else {
-                putString(CACHE_LAST_ERROR, message.take(180))
-            }
+            if (message.isNullOrBlank()) remove(CACHE_LAST_ERROR)
+            else putString(CACHE_LAST_ERROR, message.take(180))
         }
     }
 
-    fun getLastError(context: Context): String? =
-        prefs(context).getString(CACHE_LAST_ERROR, null)
+    fun getLastError(context: Context): String? = prefs(context).getString(CACHE_LAST_ERROR, null)
 
-    private fun readCachedMarketData(context: Context, symbol: String): CachedMarketData? {
-        val raw = prefs(context).getString(cacheKey(symbol), null) ?: return null
+    private fun readCachedMarketData(
+        context: Context,
+        symbol: String,
+        interval: String,
+        range: String,
+    ): CachedMarketData? {
+        val raw = prefs(context).getString(cacheKey(symbol, interval, range), null) ?: return null
         return runCatching { gson.fromJson(raw, CachedMarketData::class.java) }.getOrNull()
     }
 
     private fun pruneCachedMarketData(context: Context, now: Long) {
-        var prunedCount = 0
-        prefs(context).all.forEach { (key, value) ->
-            if (!key.startsWith(CACHE_PREFIX) || value !is String) return@forEach
+        val keysToRemove = prefs(context).all.mapNotNull { (key, value) ->
+            if (!key.startsWith(CACHE_PREFIX) || value !is String) return@mapNotNull null
             val cached = runCatching { gson.fromJson(value, CachedMarketData::class.java) }.getOrNull()
             val invalid = cached == null ||
                 cached.data.safeTimestamps().isEmpty() ||
                 cached.data.safeHistory().isEmpty() ||
                 now - cached.savedAtMs > CACHE_STALE_MS
-            if (invalid) {
-                prefs(context).edit {
-                    remove(key)
-                }
-                prunedCount += 1
-            }
+            key.takeIf { invalid }
         }
-        if (prunedCount > 0) {
-            Log.d("API_CACHE", "Pruned $prunedCount stale Yahoo cache entries")
+        if (keysToRemove.isNotEmpty()) {
+            prefs(context).edit { keysToRemove.forEach { key -> remove(key) } }
+            Log.d("API_CACHE", "Pruned ${keysToRemove.size} stale Yahoo cache entries")
         }
     }
 
-    private fun writeCachedMarketData(context: Context, symbol: String, data: MarketData, now: Long) {
+    private fun writeCachedMarketData(
+        context: Context,
+        symbol: String,
+        interval: String,
+        range: String,
+        data: MarketData,
+        now: Long,
+    ) {
         prefs(context).edit {
-            putString(cacheKey(symbol), gson.toJson(CachedMarketData(now, data)))
+            putString(cacheKey(symbol, interval, range), gson.toJson(CachedMarketData(now, data)))
         }
     }
 
-    private fun symbolLock(symbol: String): Mutex =
-        symbolLocks.getOrPut(symbol.uppercase()) { Mutex() }
+    private fun symbolLock(symbol: String, interval: String, range: String): Mutex =
+        symbolLocks.getOrPut("${symbol.uppercase()}|$interval|$range") { Mutex() }
 
-    suspend fun fetchPrices(context: Context, symbol: String): List<Double> {
-        return fetchMarketData(context, symbol)?.history ?: emptyList()
-    }
+    suspend fun fetchPrices(
+        context: Context,
+        symbol: String,
+        range: String = "2y",
+        interval: String = "1d",
+    ): List<Double> = fetchMarketData(context, symbol, range, interval)?.history ?: emptyList()
 
-    suspend fun fetchMarketData(context: Context, symbol: String): MarketData? {
-        return symbolLock(symbol).withLock {
-            val now = System.currentTimeMillis()
-            pruneCachedMarketData(context, now)
-            val cached = readCachedMarketData(context, symbol)
-            val cachedHasTimestamps = cached?.data?.safeTimestamps()?.isNotEmpty() == true
-            if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_TTL_MS) {
-                setLastError(context, null)
-                Log.d("API_CACHE", "Cache hit for $symbol")
-                return@withLock cached.data
+    /**
+     * Fetches Yahoo chart data. Existing callers retain the historical 2y/1d default,
+     * while the 17d engine requests range=max so a fresh install can rebuild state.
+     */
+    suspend fun fetchMarketData(
+        context: Context,
+        symbol: String,
+        range: String = "2y",
+        interval: String = "1d",
+    ): MarketData? = symbolLock(symbol, interval, range).withLock {
+        val now = System.currentTimeMillis()
+        pruneCachedMarketData(context, now)
+        val cached = readCachedMarketData(context, symbol, interval, range)
+        val cachedUsable = cached?.data?.let { data ->
+            data.safeTimestamps().isNotEmpty() && data.safeHistory().isNotEmpty()
+        } == true
+        val cacheTtlMs = if (range.equals("max", ignoreCase = true)) LONG_HISTORY_CACHE_TTL_MS else CACHE_TTL_MS
+        if (cached != null && cachedUsable && now - cached.savedAtMs <= cacheTtlMs) {
+            setLastError(context, null)
+            Log.d("API_CACHE", "Cache hit for $symbol/$interval/$range")
+            return@withLock cached.data
+        }
+
+        try {
+            val response = service.getHistory(symbol, interval, range)
+            val result = response.chart.result?.firstOrNull()
+            if (result == null) {
+                setLastError(context, "Yahoo $symbol fetch failed: empty response")
+                return@withLock null
             }
-
-            try {
-                val response = service.getHistory(symbol)
-                val result = response.chart.result?.firstOrNull()
-                if (result == null) {
-                    setLastError(context, "Yahoo $symbol fetch failed: empty response")
-                    return@withLock null
-                }
-                val closes = result.safeCloses()
-                val timestamps = result.safeTimestamps()
-                val pairedHistory = timestamps.zip(closes).mapNotNull { (ts, close) ->
-                    close?.let { (ts * 1000L) to it }
-                }
-                val data = MarketData(
-                    currentPrice = result.meta.regularMarketPrice,
-                    prevClose = result.meta.previousClose,
-                    history = pairedHistory.map { it.second },
-                    timestamps = pairedHistory.map { it.first }
-                )
-
-                writeCachedMarketData(context, symbol, data, now)
+            val closes = result.safeCloses()
+            val timestamps = result.safeTimestamps()
+            val pairedHistory = timestamps.zip(closes).mapNotNull { (timestamp, close) ->
+                close?.takeIf { it.isFinite() && it > 0.0 }?.let { (timestamp * 1000L) to it }
+            }
+            if (pairedHistory.isEmpty()) {
+                setLastError(context, "Yahoo $symbol fetch failed: no valid daily bars")
+                return@withLock null
+            }
+            val data = MarketData(
+                currentPrice = result.meta.regularMarketPrice,
+                prevClose = result.meta.previousClose,
+                history = pairedHistory.map { it.second },
+                timestamps = pairedHistory.map { it.first },
+            )
+            writeCachedMarketData(context, symbol, interval, range, data, now)
+            setLastError(context, null)
+            Log.d("API_CACHE", "Fetched $symbol/$interval/$range (${data.history.size} bars)")
+            data
+        } catch (e: Exception) {
+            Log.e("API_ERROR", "Yahoo $symbol/$interval/$range: ${e.message}", e)
+            if (cached != null && cachedUsable && now - cached.savedAtMs <= CACHE_STALE_MS) {
                 setLastError(context, null)
-                Log.d("API_CACHE", "Fetched fresh Yahoo data for $symbol (${data.history.size} bars)")
-                data
-            } catch (e: Exception) {
-                Log.e("API_ERROR", e.message.toString())
-                if (cached != null && cachedHasTimestamps && now - cached.savedAtMs <= CACHE_STALE_MS) {
-                    setLastError(context, null)
-                    Log.d("API_CACHE", "Using stale cache for $symbol")
-                    cached.data
-                } else {
-                    removeCachedMarketData(context, symbol)
-                    setLastError(context, "Yahoo $symbol fetch failed: ${e.message ?: "unknown error"}")
-                    Log.d("API_CACHE", "Dropped unusable cache for $symbol")
-                    null
-                }
+                Log.d("API_CACHE", "Using stale cache for $symbol/$interval/$range")
+                cached.data
+            } else {
+                removeCachedMarketData(context, symbol, interval, range)
+                setLastError(context, "Yahoo $symbol fetch failed: ${e.message ?: "unknown error"}")
+                null
             }
         }
     }
