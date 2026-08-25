@@ -30,6 +30,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -52,11 +53,17 @@ class StockWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         StockUpdateWorker.enqueue(context)
         val snapshot = withContext(Dispatchers.IO) {
-            runCatching { SoftRunner17dDataSource.load(context) }
-                .onFailure { error ->
-                    Log.e("SOFT_RUNNER_17D", "17d calculation failed: ${error.message}", error)
-                }
-                .getOrNull()
+            try {
+                SoftRunner17dDataSource.load(context)
+            } catch (e: CancellationException) {
+                // A Glance/WorkManager lifecycle cancellation is not a Yahoo or
+                // calculation failure. Propagate it so the previous widget UI
+                // remains intact instead of replacing it with a false error.
+                throw e
+            } catch (e: Exception) {
+                Log.e("SOFT_RUNNER_17D", "17d calculation failed: ${e.message}", e)
+                null
+            }
         }
         if (snapshot != null) SoftRunner17dNotifier.process(context, snapshot)
         val lastUpdate = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date())
