@@ -10,37 +10,43 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import java.time.DayOfWeek
 import java.time.Duration
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 
 object AutoRefreshScheduler {
     private const val STOCK_WORK_NAME = "stock_auto_refresh"
-    private const val AGTQ_WORK_NAME = "agtq_auto_refresh"
-    private const val SNOW_WORK_NAME = "snow_auto_refresh"
-    private const val LEGACY_MIGRATION_FLAG = "auto_refresh_migrated_v2"
+
+    // Previous builds maintained independent AGTQ/Snow chains. They are cancelled
+    // once and all TQQQ-family widgets now share STOCK_WORK_NAME.
+    private const val OLD_AGTQ_WORK_NAME = "agtq_auto_refresh"
+    private const val OLD_SNOW_WORK_NAME = "snow_auto_refresh"
     private const val LEGACY_STOCK_WORK_NAME = "stock_update_work"
     private const val LEGACY_AGTQ_WORK_NAME = "agtq_update_work"
     private const val LEGACY_SNOW_WORK_NAME = "snow_update_work"
+    private const val SHARED_MARKET_MIGRATION_FLAG = "market_sync_migrated_v3"
+
     private val newYorkZone: ZoneId = ZoneId.of("America/New_York")
 
     private fun constraints() = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
-    private fun migrateLegacySchedules(context: Context) {
+    private fun migrateToSharedMarketSchedule(context: Context) {
         val prefs = context.getSharedPreferences("StockPrefs", Context.MODE_PRIVATE)
-        if (prefs.getBoolean(LEGACY_MIGRATION_FLAG, false)) return
+        if (prefs.getBoolean(SHARED_MARKET_MIGRATION_FLAG, false)) return
 
         WorkManager.getInstance(context).apply {
+            cancelUniqueWork(OLD_AGTQ_WORK_NAME)
+            cancelUniqueWork(OLD_SNOW_WORK_NAME)
             cancelUniqueWork(LEGACY_STOCK_WORK_NAME)
             cancelUniqueWork(LEGACY_AGTQ_WORK_NAME)
             cancelUniqueWork(LEGACY_SNOW_WORK_NAME)
         }
 
-        prefs.edit().putBoolean(LEGACY_MIGRATION_FLAG, true).apply()
-        Log.d("AUTO_REFRESH", "Migrated legacy periodic schedules to one-time chains")
+        prefs.edit { putBoolean(SHARED_MARKET_MIGRATION_FLAG, true) }
+        Log.d("AUTO_REFRESH", "Migrated TQQQ/AGTQ/Snow to one shared market sync chain")
     }
 
     private fun nextDelayMillis(now: ZonedDateTime = ZonedDateTime.now(newYorkZone)): Long {
@@ -62,9 +68,10 @@ object AutoRefreshScheduler {
                 val nextOpen = ZonedDateTime.of(nextMonday, open, newYorkZone).plusMinutes(15)
                 Duration.between(now, nextOpen).toMillis().coerceAtLeast(0L)
             }
-            time < open -> Duration.between(now, ZonedDateTime.of(now.toLocalDate(), open, newYorkZone).plusMinutes(15))
-                .toMillis()
-                .coerceAtLeast(0L)
+            time < open -> Duration.between(
+                now,
+                ZonedDateTime.of(now.toLocalDate(), open, newYorkZone).plusMinutes(15),
+            ).toMillis().coerceAtLeast(0L)
             time < close -> {
                 val currentMinutes = time.hour * 60 + time.minute
                 val nextQuarterMinutes = ((currentMinutes / 15) + 1) * 15
@@ -81,7 +88,7 @@ object AutoRefreshScheduler {
         context: Context,
         workName: String,
         append: Boolean,
-        delayMs: Long
+        delayMs: Long,
     ) {
         val request = OneTimeWorkRequestBuilder<W>()
             .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
@@ -95,7 +102,7 @@ object AutoRefreshScheduler {
 
     private inline fun <reified W : androidx.work.ListenableWorker> enqueueImmediate(
         context: Context,
-        workName: String
+        workName: String,
     ) {
         val request = OneTimeWorkRequestBuilder<W>()
             .setConstraints(constraints())
@@ -106,32 +113,27 @@ object AutoRefreshScheduler {
     }
 
     fun scheduleStock(context: Context, append: Boolean = false) {
-        migrateLegacySchedules(context)
+        migrateToSharedMarketSchedule(context)
         enqueueOneTime<StockUpdateWorker>(context, STOCK_WORK_NAME, append, nextDelayMillis())
     }
 
     fun refreshStockNow(context: Context) {
-        migrateLegacySchedules(context)
+        migrateToSharedMarketSchedule(context)
         enqueueImmediate<StockUpdateWorker>(context, STOCK_WORK_NAME)
     }
 
-    fun scheduleAgtq(context: Context, append: Boolean = false) {
-        migrateLegacySchedules(context)
-        enqueueOneTime<AGTQUpdateWorker>(context, AGTQ_WORK_NAME, append, nextDelayMillis())
-    }
+    // Compatibility entry points used by the existing widget receivers/UI. They
+    // intentionally route to the one shared market worker instead of maintaining
+    // independent AGTQ/Snow schedules.
+    fun scheduleAgtq(context: Context, append: Boolean = false) =
+        scheduleStock(context, append)
 
-    fun refreshAgtqNow(context: Context) {
-        migrateLegacySchedules(context)
-        enqueueImmediate<AGTQUpdateWorker>(context, AGTQ_WORK_NAME)
-    }
+    fun refreshAgtqNow(context: Context) =
+        refreshStockNow(context)
 
-    fun scheduleSnow(context: Context, append: Boolean = false) {
-        migrateLegacySchedules(context)
-        enqueueOneTime<SnowUpdateWorker>(context, SNOW_WORK_NAME, append, nextDelayMillis())
-    }
+    fun scheduleSnow(context: Context, append: Boolean = false) =
+        scheduleStock(context, append)
 
-    fun refreshSnowNow(context: Context) {
-        migrateLegacySchedules(context)
-        enqueueImmediate<SnowUpdateWorker>(context, SNOW_WORK_NAME)
-    }
+    fun refreshSnowNow(context: Context) =
+        refreshStockNow(context)
 }
