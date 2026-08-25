@@ -58,6 +58,7 @@ object StockApiEngine {
     private const val CACHE_TTL_MS = 15 * 60 * 1000L
     private const val LONG_HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
     private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
+    private const val MIN_MAX_HISTORY_ROWS = 290
     private val symbolLocks = ConcurrentHashMap<String, Mutex>()
 
     private val retrofit = Retrofit.Builder()
@@ -97,6 +98,14 @@ object StockApiEngine {
     ): CachedMarketData? {
         val raw = prefs(context).getString(cacheKey(symbol, interval, range), null) ?: return null
         return runCatching { gson.fromJson(raw, CachedMarketData::class.java) }.getOrNull()
+    }
+
+    private fun historyIsUsable(data: MarketData, range: String): Boolean {
+        val history = data.safeHistory()
+        val timestamps = data.safeTimestamps()
+        if (history.isEmpty() || timestamps.isEmpty()) return false
+        if (range.equals("max", ignoreCase = true) && history.size < MIN_MAX_HISTORY_ROWS) return false
+        return true
     }
 
     private fun pruneCachedMarketData(context: Context, now: Long) {
@@ -171,10 +180,18 @@ object StockApiEngine {
             }
         }
 
-        val cached = readCachedMarketData(context, symbol, interval, range)
-        val cachedUsable = cached?.data?.let { data ->
-            data.safeTimestamps().isNotEmpty() && data.safeHistory().isNotEmpty()
-        } == true
+        var cached = readCachedMarketData(context, symbol, interval, range)
+        var cachedUsable = cached?.data?.let { historyIsUsable(it, range) } == true
+        if (cached != null && !cachedUsable && range.equals("max", ignoreCase = true)) {
+            Log.w(
+                "API_CACHE",
+                "Discarding truncated max cache for $symbol (${cached.data.safeHistory().size} bars)",
+            )
+            removeCachedMarketData(context, symbol, interval, range)
+            cached = null
+            cachedUsable = false
+        }
+
         val cacheTtlMs = if (range.equals("max", ignoreCase = true)) LONG_HISTORY_CACHE_TTL_MS else CACHE_TTL_MS
         if (cached != null && cachedUsable && now - cached.savedAtMs <= cacheTtlMs) {
             setLastError(context, null)
@@ -204,6 +221,17 @@ object StockApiEngine {
                 history = pairedHistory.map { it.second },
                 timestamps = pairedHistory.map { it.first },
             )
+
+            if (range.equals("max", ignoreCase = true) && data.history.size < MIN_MAX_HISTORY_ROWS) {
+                removeCachedMarketData(context, symbol, interval, range)
+                setLastError(
+                    context,
+                    "Yahoo $symbol max returned only ${data.history.size} rows; using bootstrap fallback",
+                )
+                Log.w("API_CACHE", "Rejected truncated max response for $symbol (${data.history.size} bars)")
+                return@withLock data
+            }
+
             writeCachedMarketData(context, symbol, interval, range, data, now)
             setLastError(context, null)
             Log.d("API_CACHE", "Fetched $symbol/$interval/$range (${data.history.size} bars)")
