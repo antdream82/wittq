@@ -44,14 +44,15 @@ class SoftRunner17dDataSourceTest {
     @Test
     fun incrementalRangeUsesSmallestReasonableOverlapWindow() {
         val today = LocalDate.of(2026, 8, 25)
-        assertEquals("max", SoftRunner17dDataSource.chooseIncrementalRange(null, today))
+        // Fresh installs use explicit period1/period2 bootstrap and never call this helper.
+        assertEquals("5y", SoftRunner17dDataSource.chooseIncrementalRange(null, today))
         assertEquals("1mo", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(5), today))
         assertEquals("3mo", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(45), today))
         assertEquals("6mo", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(120), today))
         assertEquals("1y", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(250), today))
         assertEquals("2y", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(500), today))
         assertEquals("5y", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(1_000), today))
-        assertEquals("10y", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(2_000), today))
-        assertEquals("max", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(4_000), today))
+        assertEquals("5y", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(2_000), today))
+        assertEquals("5y", SoftRunner17dDataSource.chooseIncrementalRange(today.minusDays(4_000), today))
     }
 }
