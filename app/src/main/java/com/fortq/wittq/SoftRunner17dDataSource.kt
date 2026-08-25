@@ -2,8 +2,7 @@ package com.fortq.wittq
 
 import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -19,11 +18,12 @@ object SoftRunner17dDataSource {
     private const val BOOTSTRAP_RANGE = "max"
     private const val NORMAL_REFRESH_RANGE = "1mo"
     private const val MIN_BOOTSTRAP_ROWS = 290
+    private const val BOOTSTRAP_RETRY_DELAY_MS = 900L
 
     suspend fun load(
         context: Context,
         nowMillis: Long = System.currentTimeMillis(),
-    ): SoftRunner17dAppSnapshot = coroutineScope {
+    ): SoftRunner17dAppSnapshot {
         val nowNy = Instant.ofEpochMilli(nowMillis).atZone(newYorkZone)
         val today = nowNy.toLocalDate()
         val store = SoftRunner17dHistoryStore.get(context)
@@ -37,9 +37,16 @@ object SoftRunner17dDataSource {
                 chooseIncrementalRange(before.latestDate, today)
             }
 
-            val network = runCatching {
-                StockApiEngine.fetchMarketData(context, symbol, refreshRange)
-            }.getOrNull()
+            // Keep bootstrap deterministic and gentle on Yahoo: symbols are loaded
+            // sequentially by the caller. On an empty install, retry a failed max
+            // fetch once after a short pause. Already-persisted symbols survive and
+            // will not need another max request on the next widget refresh.
+            var network = StockApiEngine.fetchMarketData(context, symbol, refreshRange)
+            if (network == null && !bootstrapped) {
+                Log.w("SOFT_RUNNER_17D_DB", "$symbol bootstrap failed once; retrying max")
+                delay(BOOTSTRAP_RETRY_DELAY_MS)
+                network = StockApiEngine.fetchMarketData(context, symbol, refreshRange)
+            }
 
             if (network != null) {
                 store.upsert(symbol, network, refreshRange, nowMillis)
@@ -59,7 +66,7 @@ object SoftRunner17dDataSource {
             }
 
             val local = store.read(symbol)
-            requireNotNull(local) { "$symbol local history unavailable" }
+            requireNotNull(local) { "$symbol local history unavailable; refresh to retry bootstrap" }
             require(local.history.size >= MIN_BOOTSTRAP_ROWS) {
                 "$symbol local history has only ${local.history.size} rows; bootstrap required"
             }
@@ -75,16 +82,20 @@ object SoftRunner17dDataSource {
             }
         }
 
-        val tqqqDeferred = async { loadSymbol("TQQQ") }
-        val qqqDeferred = async { loadSymbol("QQQ") }
-        val spyDeferred = async { loadSymbol("SPY") }
-        val vixDeferred = async { loadSymbol("^VIX") }
+        // Deliberately sequential. Four simultaneous range=max calls on a fresh
+        // install made a single child failure cancel sibling fetches, producing the
+        // misleading "Parent job is Cancelling" error. Sequential persistence means
+        // each successful symbol is durable and only the missing symbol is retried.
+        val tqqq = loadSymbol("TQQQ")
+        val qqq = loadSymbol("QQQ")
+        val spy = loadSymbol("SPY")
+        val vix = loadSymbol("^VIX")
 
-        calculate(
-            tqqqDeferred.await(),
-            qqqDeferred.await(),
-            spyDeferred.await(),
-            vixDeferred.await(),
+        return calculate(
+            tqqq,
+            qqq,
+            spy,
+            vix,
             nowMillis,
         )
     }
