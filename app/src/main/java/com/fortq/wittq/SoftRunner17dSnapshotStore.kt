@@ -28,6 +28,7 @@ object SoftRunner17dSnapshotStore {
     private const val PREFS = "SoftRunner17dSnapshot"
     private const val KEY_SNAPSHOT = "snapshot_v1"
     private const val KEY_ERROR = "last_refresh_error"
+    private const val KEY_ERROR_AT = "last_refresh_error_at"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -63,6 +64,7 @@ object SoftRunner17dSnapshotStore {
         prefs(context).edit()
             .putString(KEY_SNAPSHOT, json.toString())
             .remove(KEY_ERROR)
+            .remove(KEY_ERROR_AT)
             .commit()
     }
 
@@ -92,14 +94,22 @@ object SoftRunner17dSnapshotStore {
         }.getOrNull()
     }
 
-    fun setError(context: Context, message: String) {
+    fun setError(
+        context: Context,
+        message: String,
+        atMillis: Long = System.currentTimeMillis(),
+    ) {
         prefs(context).edit()
             .putString(KEY_ERROR, message.take(180))
+            .putLong(KEY_ERROR_AT, atMillis)
             .apply()
     }
 
     fun getError(context: Context): String? =
         prefs(context).getString(KEY_ERROR, null)
+
+    fun getErrorAt(context: Context): Long =
+        prefs(context).getLong(KEY_ERROR_AT, 0L)
 
     private fun JSONObject.putNullableDouble(key: String, value: Double?) {
         if (value == null) put(key, JSONObject.NULL) else put(key, value)
