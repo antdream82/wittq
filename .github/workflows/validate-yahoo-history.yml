@@ -14,13 +14,14 @@ jobs:
       - name: Fetch Yahoo daily history and compute SMA290
         run: |
           python - <<'PY'
-          import json, urllib.parse, urllib.request
+          import json, urllib.parse, urllib.request, urllib.error, time
           from datetime import datetime, timezone
 
           start = int(datetime(2010, 2, 1, tzinfo=timezone.utc).timestamp())
           end = int(datetime(2026, 8, 27, tzinfo=timezone.utc).timestamp())
           cutoff = '2026-08-25'
           symbols = ['TQQQ','QQQ','SPY','^VIX']
+          hosts = ['query2.finance.yahoo.com','query1.finance.yahoo.com']
 
           def fetch(symbol):
               qs = urllib.parse.urlencode({
@@ -30,19 +31,33 @@ jobs:
                   'includePrePost': 'false',
                   'events': 'div,splits',
               })
-              url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + urllib.parse.quote(symbol, safe='') + '?' + qs
-              req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'})
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  payload = json.load(r)
-              result = payload['chart']['result'][0]
-              ts = result['timestamp']
-              cl = result['indicators']['quote'][0]['close']
-              rows=[]
-              for t,c in zip(ts,cl):
-                  if c is None: continue
-                  d=datetime.fromtimestamp(t, tz=timezone.utc).date().isoformat()
-                  rows.append((d,float(c)))
-              return rows
+              last = None
+              for host in hosts:
+                  for attempt in range(3):
+                      url = 'https://' + host + '/v8/finance/chart/' + urllib.parse.quote(symbol, safe='') + '?' + qs
+                      req = urllib.request.Request(url, headers={
+                          'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
+                          'Accept':'application/json,text/plain,*/*',
+                          'Referer':'https://finance.yahoo.com/',
+                      })
+                      try:
+                          with urllib.request.urlopen(req, timeout=30) as r:
+                              payload = json.load(r)
+                          result = payload['chart']['result'][0]
+                          ts = result['timestamp']
+                          cl = result['indicators']['quote'][0]['close']
+                          rows=[]
+                          for t,c in zip(ts,cl):
+                              if c is None: continue
+                              d=datetime.fromtimestamp(t, tz=timezone.utc).date().isoformat()
+                              rows.append((d,float(c)))
+                          print(f'FETCH_OK {symbol} host={host} attempt={attempt+1}')
+                          return rows
+                      except Exception as e:
+                          last=e
+                          print(f'FETCH_FAIL {symbol} host={host} attempt={attempt+1}: {e}')
+                          time.sleep(4*(attempt+1))
+              raise last
 
           allrows={}
           for s in symbols:
