@@ -195,8 +195,11 @@ private fun SoftRunner17dContent(
     val topHeight = (size.height.value * 0.34f).coerceIn(72f, 100f)
 
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
-    val officialColor = targetColor(snapshot.officialTarget)
-    val previewColor = if (previewDiffers) Color(0xFFFFA400) else officialColor
+    val officialBaseColor = targetColor(snapshot.officialTarget)
+    val previewBaseColor = if (previewDiffers) targetColor(snapshot.previewTarget) else officialBaseColor
+    // Same semantic hue, but visually distinguish official (deeper) from preview (lighter).
+    val officialColor = blendColor(officialBaseColor, Color.Black, 0.08f)
+    val previewColor = blendColor(previewBaseColor, Color.White, 0.16f)
     val officialHeadline = targetHeadline("OFFICIAL", snapshot.officialTarget)
     val previewHeadline = targetHeadline("PREVIEW", snapshot.previewTarget)
     val statusColor = if (snapshot.stale) Color(0xFFFF453A) else Color(0xFFB0B0B5)
@@ -273,7 +276,7 @@ private fun SoftRunner17dContent(
                 }
             }
 
-            Spacer(GlanceModifier.height((5 * footerFactor).dp))
+            Spacer(GlanceModifier.height((7 * footerFactor).dp))
 
             // Keep the footer nested so both outer and inner Glance containers stay
             // well below the 10-direct-child app-widget limit.
@@ -282,7 +285,7 @@ private fun SoftRunner17dContent(
                     "Reason ${compactReason(snapshot.reason)} · Runner ${runnerStatusLabel(snapshot.runnerStatus)} · Release ${releaseStatusLabel(snapshot.releaseStatus)} · Contra ${onOff(snapshot.contrarianActive)} · Risk ${onOff(snapshot.hardRisk)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(bottom = (0.5f * footerFactor).dp),
+                        .padding(bottom = (0.9f * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(Color(0xFFB8B8BD)),
                         fontSize = (8.8f * footerFactor).sp,
@@ -294,7 +297,7 @@ private fun SoftRunner17dContent(
                     "TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"} · Disp ${formatDisp(snapshot.tqqqSma290Ratio)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(bottom = (0.5f * footerFactor).dp),
+                        .padding(bottom = (0.9f * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(Color.White),
                         fontSize = (9.4f * footerFactor).sp,
@@ -306,7 +309,7 @@ private fun SoftRunner17dContent(
                     "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(bottom = (0.5f * footerFactor).dp),
+                        .padding(bottom = (0.9f * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(Color.White),
                         fontSize = (9.4f * footerFactor).sp,
@@ -413,6 +416,16 @@ private fun compactStatusMessage(status: String): String = when {
 
 private fun money(value: Double): String = String.format(Locale.US, "\$%.2f", value)
 private fun onOff(value: Boolean): String = if (value) "ON" else "OFF"
+
+private fun blendColor(from: Color, to: Color, amount: Float): Color {
+    val t = amount.coerceIn(0f, 1f)
+    return Color(
+        red = from.red + (to.red - from.red) * t,
+        green = from.green + (to.green - from.green) * t,
+        blue = from.blue + (to.blue - from.blue) * t,
+        alpha = from.alpha + (to.alpha - from.alpha) * t,
+    )
+}
 
 private fun targetColor(target: Double): Color = when {
     target <= 0.01 -> Color(0xFFFF453A)
