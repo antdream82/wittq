@@ -7,6 +7,7 @@ import androidx.work.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.TimeUnit
 
 class StockUpdateWorker(
     private val context: Context,
@@ -46,12 +47,13 @@ class StockUpdateWorker(
             SoftRunner17dSnapshotStore.setError(context, detail)
             Log.e("WITTQ_WORKER", "Shared market refresh failed: $detail", e)
 
-            // Keep any last-known local widget state visible even if the newest
-            // Yahoo refresh failed. The error widget itself safely ensures another
-            // non-cancelling bootstrap attempt after the throttle window.
+            // Keep last-known values visible, but the snapshot reader now marks
+            // them REPAIR/stale so a failed canonical rebuild cannot look current.
             StockWidget().updateAll(context)
             AGTQWidget().updateAll(context)
             SnowWidget().updateAll(context)
+
+            scheduleRepairRetry(context)
             Result.success()
         } finally {
             AutoRefreshScheduler.scheduleStock(context, append = true)
@@ -68,11 +70,32 @@ class StockUpdateWorker(
         ).joinToString(" ") { (label, symbol) ->
             val stats = store.stats(symbol)
             val cadence = if (store.hasDailyCadence(symbol)) "d" else "x"
-            "$label=${stats.rowCount}$cadence"
+            val canonical = if (store.isBootstrapComplete(symbol)) "✓" else "!"
+            "$label=${stats.rowCount}$cadence$canonical"
         }
     }
 
+    private fun scheduleRepairRetry(context: Context) {
+        val request = OneTimeWorkRequestBuilder<StockUpdateWorker>()
+            .setInitialDelay(REPAIR_RETRY_MINUTES, TimeUnit.MINUTES)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build(),
+            )
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            REPAIR_WORK_NAME,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request,
+        )
+        Log.d("WITTQ_WORKER", "Scheduled canonical repair retry in $REPAIR_RETRY_MINUTES min")
+    }
+
     companion object {
+        private const val REPAIR_WORK_NAME = "stock_canonical_repair_retry_v3"
+        private const val REPAIR_RETRY_MINUTES = 5L
         private val marketSyncMutex = Mutex()
 
         fun enqueue(context: Context) {
