@@ -1,0 +1,64 @@
+name: Validate Yahoo History
+
+on:
+  push:
+    branches: [main_v3]
+    paths:
+      - '.github/workflows/validate-yahoo-history.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Yahoo daily history and compute SMA290
+        run: |
+          python - <<'PY'
+          import json, urllib.parse, urllib.request
+          from datetime import datetime, timezone
+
+          start = int(datetime(2010, 2, 1, tzinfo=timezone.utc).timestamp())
+          end = int(datetime(2026, 8, 27, tzinfo=timezone.utc).timestamp())
+          cutoff = '2026-08-25'
+          symbols = ['TQQQ','QQQ','SPY','^VIX']
+
+          def fetch(symbol):
+              qs = urllib.parse.urlencode({
+                  'period1': start,
+                  'period2': end,
+                  'interval': '1d',
+                  'includePrePost': 'false',
+                  'events': 'div,splits',
+              })
+              url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + urllib.parse.quote(symbol, safe='') + '?' + qs
+              req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  payload = json.load(r)
+              result = payload['chart']['result'][0]
+              ts = result['timestamp']
+              cl = result['indicators']['quote'][0]['close']
+              rows=[]
+              for t,c in zip(ts,cl):
+                  if c is None: continue
+                  d=datetime.fromtimestamp(t, tz=timezone.utc).date().isoformat()
+                  rows.append((d,float(c)))
+              return rows
+
+          allrows={}
+          for s in symbols:
+              rows=fetch(s)
+              allrows[s]=rows
+              upto=[x for x in rows if x[0] <= cutoff]
+              print(f'{s}: rows={len(rows)} upto={len(upto)} first={upto[0][0]} last={upto[-1][0]} close={upto[-1][1]:.8f}')
+              if s=='TQQQ':
+                  last290=upto[-290:]
+                  sma=sum(c for _,c in last290)/290
+                  print(f'TQQQ_SMA290_RAW_CLOSE={sma:.8f}')
+                  print(f'TQQQ_290_START={last290[0][0]} TQQQ_290_END={last290[-1][0]}')
+
+          common = set(d for d,_ in allrows['TQQQ'])
+          for s in ['QQQ','SPY','^VIX']:
+              common &= set(d for d,_ in allrows[s])
+          common = sorted(d for d in common if d <= cutoff)
+          print(f'COMMON_DATES_UPTO_{cutoff}={len(common)} FIRST={common[0]} LAST={common[-1]}')
+          PY
