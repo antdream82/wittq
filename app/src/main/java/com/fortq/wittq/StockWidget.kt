@@ -232,7 +232,7 @@ private fun SoftRunner17dContent(
                 InfoLine("Runner", "${snapshot.runnerStatus}/${snapshot.releaseStatus}", factor)
                 InfoLine("Contrarian", if (snapshot.contrarianActive) "ACTIVE" else "OFF", factor)
                 InfoLine("HardRisk", if (snapshot.hardRisk) "ON" else "OFF", factor)
-                InfoLine("1Y/6M/3M", compactTrailingReturnSummary(snapshot), factor)
+                InfoLine("1Y/6M/3M%", compactTrailingReturnSummary(snapshot), factor)
                 InfoLine("TQQQ", String.format(Locale.US, "\$%.2f", snapshot.tqqqClose), factor)
                 InfoLine("SMA290", snapshot.tqqqSma290?.let { String.format(Locale.US, "\$%.2f", it) } ?: "-", factor)
                 InfoLine("Ratio", snapshot.tqqqSma290Ratio?.let { String.format(Locale.US, "%.2f%%", it * 100) } ?: "-", factor)
@@ -304,7 +304,12 @@ private fun trailingReturnSummary(snapshot: SoftRunner17dWidgetSnapshot): String
     "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}"
 
 private fun compactTrailingReturnSummary(snapshot: SoftRunner17dWidgetSnapshot): String =
-    "${formatReturn(snapshot.trailingReturn1y)}/${formatReturn(snapshot.trailingReturn6m)}/${formatReturn(snapshot.trailingReturn3m)}"
+    "${compactReturn(snapshot.trailingReturn1y)}/${compactReturn(snapshot.trailingReturn6m)}/${compactReturn(snapshot.trailingReturn3m)}"
+
+private fun compactReturn(value: Double?): String = when {
+    value == null || !value.isFinite() -> "-"
+    else -> String.format(Locale.US, "%+.0f", value)
+}
 
 private fun formatReturn(value: Double?): String = when {
     value == null || !value.isFinite() -> "-"
