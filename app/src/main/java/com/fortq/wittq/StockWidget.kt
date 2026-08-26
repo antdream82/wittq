@@ -176,108 +176,93 @@ private fun SoftRunner17dContent(
             .fillMaxSize()
             .background(Color(0xFF1C1C1E))
             .cornerRadius(28.dp)
-            .padding(horizontal = (18 * factor).dp, vertical = (14 * factor).dp),
+            .padding(horizontal = (18 * factor).dp, vertical = (12 * factor).dp),
     ) {
-        Row(modifier = GlanceModifier.fillMaxSize()) {
-            Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
-                Text(
-                    "17d SOFT RUNNER",
-                    style = TextStyle(
-                        color = ColorProvider(Color.LightGray),
-                        fontSize = (13 * factor).sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                )
-                Spacer(GlanceModifier.height((4 * factor).dp))
-                chart?.let {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            Text(
+                "17d SOFT RUNNER",
+                style = TextStyle(
+                    color = ColorProvider(Color.LightGray),
+                    fontSize = (13 * factor).sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+            Spacer(GlanceModifier.height((3 * factor).dp))
+
+            Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                if (chart != null) {
                     Image(
-                        provider = ImageProvider(it),
+                        provider = ImageProvider(chart),
                         contentDescription = "TQQQ and SMA290 chart",
-                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
+                    )
+                } else {
+                    Spacer(GlanceModifier.defaultWeight())
+                }
+
+                Spacer(GlanceModifier.width((12 * factor).dp))
+
+                Column(
+                    modifier = GlanceModifier.width((168 * factor).dp).fillMaxHeight(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "OFFICIAL ${SoftRunner17dNotifier.ratioLabel(snapshot.officialTarget)}",
+                        style = TextStyle(
+                            color = ColorProvider(officialColor),
+                            fontSize = (16 * factor).sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                    )
+                    Spacer(GlanceModifier.height((2 * factor).dp))
+                    Text(
+                        "PREVIEW ${SoftRunner17dNotifier.ratioLabel(snapshot.previewTarget)}",
+                        style = TextStyle(
+                            color = ColorProvider(previewColor),
+                            fontSize = (13 * factor).sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
                     )
                 }
-                Text(
-                    snapshot.statusMessage,
-                    style = TextStyle(
-                        color = ColorProvider(if (snapshot.stale) Color(0xFFFF453A) else Color(0xFF8E8E93)),
-                        fontSize = (9 * factor).sp,
-                    ),
-                )
             }
 
-            Spacer(GlanceModifier.width((14 * factor).dp))
-
-            Column(
-                modifier = GlanceModifier.width((170 * factor).dp).fillMaxHeight(),
-                verticalAlignment = Alignment.Bottom,
-            ) {
+            Spacer(GlanceModifier.height((2 * factor).dp))
+            Text(
+                "Reason ${compactReason(snapshot.reason)} · Runner ${runnerStatusLabel(snapshot.runnerStatus)} · Release ${releaseStatusLabel(snapshot.releaseStatus)} · Contra ${onOff(snapshot.contrarianActive)} · Risk ${onOff(snapshot.hardRisk)}",
+                modifier = GlanceModifier.fillMaxWidth(),
+                style = TextStyle(
+                    color = ColorProvider(Color(0xFFB0B0B5)),
+                    fontSize = (7.5 * factor).sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+            Text(
+                "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)} · TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"}",
+                modifier = GlanceModifier.fillMaxWidth(),
+                style = TextStyle(
+                    color = ColorProvider(Color.White),
+                    fontSize = (7.5 * factor).sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "OFFICIAL ${SoftRunner17dNotifier.ratioLabel(snapshot.officialTarget)}",
-                    style = TextStyle(
-                        color = ColorProvider(officialColor),
-                        fontSize = (18 * factor).sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                )
-                Text(
-                    "PREVIEW ${SoftRunner17dNotifier.ratioLabel(snapshot.previewTarget)}",
-                    style = TextStyle(
-                        color = ColorProvider(previewColor),
-                        fontSize = (15 * factor).sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-                )
-                Spacer(GlanceModifier.height((5 * factor).dp))
-                InfoLine("Reason", snapshot.reason, factor)
-                InfoLine("Runner", "${snapshot.runnerStatus}/${snapshot.releaseStatus}", factor)
-                InfoLine("Contrarian", if (snapshot.contrarianActive) "ACTIVE" else "OFF", factor)
-                InfoLine("HardRisk", if (snapshot.hardRisk) "ON" else "OFF", factor)
-                InfoLine("1Y/6M/3M%", compactTrailingReturnSummary(snapshot), factor)
-                InfoLine("TQQQ", String.format(Locale.US, "\$%.2f", snapshot.tqqqClose), factor)
-                InfoLine("SMA290", snapshot.tqqqSma290?.let { String.format(Locale.US, "\$%.2f", it) } ?: "-", factor)
-                InfoLine("Ratio", snapshot.tqqqSma290Ratio?.let { String.format(Locale.US, "%.2f%%", it * 100) } ?: "-", factor)
-                Text(
-                    trailingReturnSummary(snapshot),
-                    modifier = GlanceModifier.fillMaxWidth(),
+                    "Ratio ${snapshot.tqqqSma290Ratio?.let { String.format(Locale.US, "%.1f%%", it * 100) } ?: "-"} · C/R ${flag(snapshot.contrarianCheap)}/${flag(snapshot.contrarianReclaim)} · ${snapshot.statusMessage.take(30)} · Upd $lastUpdate",
+                    modifier = GlanceModifier.defaultWeight(),
                     style = TextStyle(
                         color = ColorProvider(Color(0xFF8E8E93)),
-                        fontSize = (8 * factor).sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = (7 * factor).sp,
                     ),
                 )
-                Spacer(GlanceModifier.defaultWeight())
-                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        "Upd $lastUpdate",
-                        modifier = GlanceModifier.defaultWeight(),
-                        style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = (8 * factor).sp),
-                    )
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_refresh),
-                        contentDescription = "Refresh 17d",
-                        modifier = GlanceModifier
-                            .size((16 * factor).dp)
-                            .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
-                    )
-                }
+                Image(
+                    provider = ImageProvider(R.drawable.ic_refresh),
+                    contentDescription = "Refresh 17d",
+                    modifier = GlanceModifier
+                        .size((13 * factor).dp)
+                        .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
+                )
             }
         }
-    }
-}
-
-@SuppressLint("RestrictedApi")
-@Composable
-private fun InfoLine(label: String, value: String, factor: Float) {
-    Row(modifier = GlanceModifier.fillMaxWidth()) {
-        Text(
-            label,
-            style = TextStyle(color = ColorProvider(Color(0xFF8E8E93)), fontSize = (10 * factor).sp),
-        )
-        Spacer(GlanceModifier.defaultWeight())
-        Text(
-            value.take(28),
-            style = TextStyle(color = ColorProvider(Color.White), fontSize = (10 * factor).sp, fontWeight = FontWeight.Bold),
-        )
     }
 }
 
@@ -300,15 +285,28 @@ private fun ErrorContent(message: String, lastUpdate: String) {
     }
 }
 
-private fun trailingReturnSummary(snapshot: SoftRunner17dWidgetSnapshot): String =
-    "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}"
+private fun compactReason(reason: String): String = when (reason) {
+    "HOLD" -> "HOLD"
+    "BASE_TARGET_CHANGE" -> "BASE CHANGE"
+    "BASE_TRIGGER_CONFIRMING" -> "RUNNER CONFIRM"
+    "BASE_TRIGGER_COMPLETE" -> "RUNNER ON"
+    "BASE_HARD_RISK_TERMINATION" -> "HARD EXIT"
+    "BASE_ANCHOR_MUTATION_COMPLETE" -> "RELEASE DONE"
+    "CONTRARIAN_ENTER" -> "CONTRA ENTER"
+    "CONTRARIAN_ACTIVE_HOLD" -> "CONTRA HOLD"
+    "CONTRARIAN_PANIC_OVERRIDE_ACTIVE" -> "PANIC OVERRIDE"
+    else -> reason.replace('_', ' ').take(18)
+}
 
-private fun compactTrailingReturnSummary(snapshot: SoftRunner17dWidgetSnapshot): String =
-    "${compactReturn(snapshot.trailingReturn1y)}/${compactReturn(snapshot.trailingReturn6m)}/${compactReturn(snapshot.trailingReturn3m)}"
+private fun runnerStatusLabel(status: String): String = when (status) {
+    "ACTIVE" -> "20% ON"
+    "TRIGGER_CONFIRMING" -> "CONFIRM"
+    else -> "OFF"
+}
 
-private fun compactReturn(value: Double?): String = when {
-    value == null || !value.isFinite() -> "-"
-    else -> String.format(Locale.US, "%+.0f", value)
+private fun releaseStatusLabel(status: String): String = when (status) {
+    "PENDING" -> "PENDING"
+    else -> "NONE"
 }
 
 private fun formatReturn(value: Double?): String = when {
@@ -316,6 +314,8 @@ private fun formatReturn(value: Double?): String = when {
     else -> String.format(Locale.US, "%+.1f%%", value)
 }
 
+private fun money(value: Double): String = String.format(Locale.US, "\$%.2f", value)
+private fun onOff(value: Boolean): String = if (value) "ON" else "OFF"
 private fun flag(value: Boolean): String = if (value) "T" else "F"
 
 private fun targetColor(target: Double): Color = when {
