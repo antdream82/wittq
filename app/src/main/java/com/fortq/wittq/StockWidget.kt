@@ -185,40 +185,41 @@ private fun SoftRunner17dContent(
     lastUpdate: String,
     size: DpSize,
 ) {
-    val factor = minOf(
-        size.width.value / 380f,
-        size.height.value / 290f,
-    ).coerceIn(0.80f, 1.12f)
-    val footerFactor = factor.coerceAtMost(1.0f)
+    // Keep typography primarily width-driven so moving from 4x3 to 4x2 does not
+    // shrink the footer just because the launcher reports less vertical space.
+    val widthFactor = (size.width.value / 380f).coerceIn(0.92f, 1.12f)
+    val factor = minOf(widthFactor, size.height.value / 210f).coerceIn(0.88f, 1.12f)
+    val footerFactor = widthFactor.coerceIn(0.98f, 1.08f)
     val rightWidth = (size.width.value * 0.31f).coerceIn(104f, 138f)
 
-    // Keep the visual block compact so the four-line footer reads as one section.
-    val topHeight = (size.height.value * 0.38f).coerceIn(90f, 122f)
+    // 4x2 is intentionally compact: preserve enough graph to read the shape,
+    // then spend the recovered height on the four diagnostic lines.
+    val topHeight = (size.height.value * 0.34f).coerceIn(72f, 100f)
 
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
     val officialColor = targetColor(snapshot.officialTarget)
     val previewColor = if (previewDiffers) Color(0xFFFFA400) else officialColor
     val officialHeadline = targetHeadline("OFFICIAL", snapshot.officialTarget)
     val previewHeadline = targetHeadline("PREVIEW", snapshot.previewTarget)
-    val statusColor = if (snapshot.stale) Color(0xFFFF453A) else Color(0xFF8E8E93)
+    val statusColor = if (snapshot.stale) Color(0xFFFF453A) else Color(0xFF9A9AA0)
 
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
             .background(Color(0xFF1C1C1E))
             .cornerRadius(28.dp)
-            .padding(horizontal = (16 * factor).dp, vertical = (10 * factor).dp),
+            .padding(horizontal = (16 * factor).dp, vertical = (8 * factor).dp),
     ) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
             Text(
                 "17d SOFT RUNNER",
                 style = TextStyle(
                     color = ColorProvider(Color.LightGray),
-                    fontSize = (14 * factor).sp,
+                    fontSize = (13.5f * factor).sp,
                     fontWeight = FontWeight.Bold,
                 ),
             )
-            Spacer(GlanceModifier.height((3 * factor).dp))
+            Spacer(GlanceModifier.height((2 * factor).dp))
 
             Row(modifier = GlanceModifier.fillMaxWidth().height(topHeight.dp)) {
                 if (chart != null) {
@@ -232,7 +233,7 @@ private fun SoftRunner17dContent(
                     Spacer(GlanceModifier.defaultWeight())
                 }
 
-                Spacer(GlanceModifier.width((10 * factor).dp))
+                Spacer(GlanceModifier.width((9 * factor).dp))
 
                 Column(
                     modifier = GlanceModifier.width(rightWidth.dp).fillMaxHeight(),
@@ -242,7 +243,7 @@ private fun SoftRunner17dContent(
                         officialHeadline.label,
                         style = TextStyle(
                             color = ColorProvider(officialColor),
-                            fontSize = (12.0f * factor).sp,
+                            fontSize = (11.5f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
@@ -250,16 +251,16 @@ private fun SoftRunner17dContent(
                         officialHeadline.value,
                         style = TextStyle(
                             color = ColorProvider(officialColor),
-                            fontSize = (17 * factor).sp,
+                            fontSize = (15.5f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
-                    Spacer(GlanceModifier.height((5 * factor).dp))
+                    Spacer(GlanceModifier.height((3 * factor).dp))
                     Text(
                         previewHeadline.label,
                         style = TextStyle(
                             color = ColorProvider(previewColor),
-                            fontSize = (11.5f * factor).sp,
+                            fontSize = (10.8f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
@@ -267,27 +268,26 @@ private fun SoftRunner17dContent(
                         previewHeadline.value,
                         style = TextStyle(
                             color = ColorProvider(previewColor),
-                            fontSize = (14.5f * factor).sp,
+                            fontSize = (13.2f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
                 }
             }
 
-            Spacer(GlanceModifier.height((3 * footerFactor).dp))
+            Spacer(GlanceModifier.height((2 * footerFactor).dp))
 
-            // Glance app-widget Row/Column containers support at most 10 direct
-            // children. Keep all footer lines inside one nested Column so the
-            // outer Column stays well below that hard limit.
+            // Keep the footer nested so both outer and inner Glance containers stay
+            // well below the 10-direct-child app-widget limit.
             Column(modifier = GlanceModifier.fillMaxWidth()) {
                 Text(
                     "Reason ${compactReason(snapshot.reason)} · Runner ${runnerStatusLabel(snapshot.runnerStatus)} · Release ${releaseStatusLabel(snapshot.releaseStatus)} · Contra ${onOff(snapshot.contrarianActive)} · Risk ${onOff(snapshot.hardRisk)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(bottom = (1.0f * footerFactor).dp),
+                        .padding(bottom = (0.5f * footerFactor).dp),
                     style = TextStyle(
-                        color = ColorProvider(Color(0xFFB0B0B5)),
-                        fontSize = (8.0f * footerFactor).sp,
+                        color = ColorProvider(Color(0xFFB8B8BD)),
+                        fontSize = (8.8f * footerFactor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
@@ -296,10 +296,10 @@ private fun SoftRunner17dContent(
                     "TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"} · Disp ${formatDisp(snapshot.tqqqSma290Ratio)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(bottom = (1.0f * footerFactor).dp),
+                        .padding(bottom = (0.5f * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(Color.White),
-                        fontSize = (8.5f * footerFactor).sp,
+                        fontSize = (9.4f * footerFactor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
@@ -308,10 +308,10 @@ private fun SoftRunner17dContent(
                     "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
-                        .padding(bottom = (1.0f * footerFactor).dp),
+                        .padding(bottom = (0.5f * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(Color.White),
-                        fontSize = (8.5f * footerFactor).sp,
+                        fontSize = (9.4f * footerFactor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
@@ -323,7 +323,8 @@ private fun SoftRunner17dContent(
                         .padding(end = (22 * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(statusColor),
-                        fontSize = (7.2f * footerFactor).sp,
+                        fontSize = (8.4f * footerFactor).sp,
+                        fontWeight = FontWeight.Bold,
                     ),
                 )
             }
@@ -337,7 +338,7 @@ private fun SoftRunner17dContent(
                 provider = ImageProvider(R.drawable.ic_refresh),
                 contentDescription = "Refresh 17d",
                 modifier = GlanceModifier
-                    .size((13 * factor).dp)
+                    .size((12 * factor).dp)
                     .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
             )
         }
