@@ -195,10 +195,10 @@ private fun SoftRunner17dContent(
     val footerFactor = factor.coerceAtMost(1.0f)
     val rightWidth = (size.width.value * 0.31f).coerceIn(104f, 138f)
 
-    // Reserve footer space explicitly. A weighted chart row could consume the
-    // extra launcher height and still push the fourth footer row outside the card.
-    // The top section now stays compact and the full 4-line footer always has room.
-    val topHeight = (size.height.value * 0.53f).coerceIn(120f, 165f)
+    // Keep the visual block deliberately compact. The actual Samsung launcher
+    // screenshot has ample footer space, so the chart does not need to consume
+    // more than roughly the upper half of the card.
+    val topHeight = (size.height.value * 0.44f).coerceIn(100f, 140f)
 
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
     val officialColor = targetColor(snapshot.officialTarget)
@@ -225,8 +225,6 @@ private fun SoftRunner17dContent(
             )
             Spacer(GlanceModifier.height((3 * factor).dp))
 
-            // Only this top block is split horizontally. The footer below spans
-            // the full card width.
             Row(modifier = GlanceModifier.fillMaxWidth().height(topHeight.dp)) {
                 if (chart != null) {
                     Image(
@@ -294,7 +292,6 @@ private fun SoftRunner17dContent(
             )
             Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
 
-            // Price / moving-average / disparity is the primary market-state row.
             Text(
                 "TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"} · Disp ${formatDisp(snapshot.tqqqSma290Ratio)}",
                 modifier = GlanceModifier.fillMaxWidth(),
@@ -306,7 +303,6 @@ private fun SoftRunner17dContent(
             )
             Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
 
-            // Performance follows current market state.
             Text(
                 "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
                 modifier = GlanceModifier.fillMaxWidth(),
@@ -318,24 +314,34 @@ private fun SoftRunner17dContent(
             )
             Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
 
-            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)} · Upd $lastUpdate",
-                    modifier = GlanceModifier.defaultWeight(),
-                    style = TextStyle(
-                        color = ColorProvider(statusColor),
-                        fontSize = (7.2f * footerFactor).sp,
-                    ),
-                )
-                Spacer(GlanceModifier.width((4 * footerFactor).dp))
-                Image(
-                    provider = ImageProvider(R.drawable.ic_refresh),
-                    contentDescription = "Refresh 17d",
-                    modifier = GlanceModifier
-                        .size((13 * factor).dp)
-                        .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
-                )
-            }
+            // Keep the fourth footer row as a plain Text. On Samsung's launcher,
+            // a Row containing a weighted Text plus the refresh Image was measured
+            // at zero height even though blank vertical space remained below it.
+            Text(
+                "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)} · Upd $lastUpdate",
+                modifier = GlanceModifier
+                    .fillMaxWidth()
+                    .padding(end = (22 * footerFactor).dp),
+                style = TextStyle(
+                    color = ColorProvider(statusColor),
+                    fontSize = (7.0f * footerFactor).sp,
+                ),
+            )
+        }
+
+        // Overlay the refresh affordance instead of letting it participate in the
+        // footer row's measurement. This keeps both the last line and the button.
+        Box(
+            modifier = GlanceModifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            Image(
+                provider = ImageProvider(R.drawable.ic_refresh),
+                contentDescription = "Refresh 17d",
+                modifier = GlanceModifier
+                    .size((13 * factor).dp)
+                    .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
+            )
         }
     }
 }
