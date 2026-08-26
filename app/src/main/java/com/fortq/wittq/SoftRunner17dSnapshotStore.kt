@@ -76,7 +76,7 @@ object SoftRunner17dSnapshotStore {
 
     fun read(context: Context): SoftRunner17dWidgetSnapshot? {
         val raw = prefs(context).getString(KEY_SNAPSHOT, null) ?: return null
-        return runCatching {
+        val parsed = runCatching {
             val json = JSONObject(raw)
             SoftRunner17dWidgetSnapshot(
                 officialTarget = json.getDouble("officialTarget"),
@@ -100,7 +100,20 @@ object SoftRunner17dSnapshotStore {
                 stale = json.getBoolean("stale"),
                 updatedAtMillis = json.getLong("updatedAtMillis"),
             )
-        }.getOrNull()
+        }.getOrNull() ?: return null
+
+        // A failed canonical repair used to be invisible whenever an older valid
+        // snapshot existed. Preserve its values, but visibly mark them stale and
+        // surface the actual worker failure until a successful save clears it.
+        val error = getError(context)
+        if (error.isNullOrBlank()) return parsed
+
+        val errorAt = getErrorAt(context)
+        return parsed.copy(
+            statusMessage = "REPAIR ${error.take(120)}",
+            stale = true,
+            updatedAtMillis = maxOf(parsed.updatedAtMillis, errorAt),
+        )
     }
 
     fun setError(
