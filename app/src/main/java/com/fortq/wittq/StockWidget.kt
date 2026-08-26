@@ -192,8 +192,6 @@ private fun SoftRunner17dContent(
     val footerFactor = widthFactor.coerceIn(0.98f, 1.08f)
     val rightWidth = (size.width.value * 0.31f).coerceIn(104f, 138f)
 
-    // 4x2 is intentionally compact: preserve enough graph to read the shape,
-    // then spend the recovered height on the four diagnostic lines.
     val topHeight = (size.height.value * 0.34f).coerceIn(72f, 100f)
 
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
@@ -201,7 +199,7 @@ private fun SoftRunner17dContent(
     val previewColor = if (previewDiffers) Color(0xFFFFA400) else officialColor
     val officialHeadline = targetHeadline("OFFICIAL", snapshot.officialTarget)
     val previewHeadline = targetHeadline("PREVIEW", snapshot.previewTarget)
-    val statusColor = if (snapshot.stale) Color(0xFFFF453A) else Color(0xFF9A9AA0)
+    val statusColor = if (snapshot.stale) Color(0xFFFF453A) else Color(0xFFB0B0B5)
 
     Box(
         modifier = GlanceModifier
@@ -243,7 +241,7 @@ private fun SoftRunner17dContent(
                         officialHeadline.label,
                         style = TextStyle(
                             color = ColorProvider(officialColor),
-                            fontSize = (11.5f * factor).sp,
+                            fontSize = (10.4f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
@@ -251,16 +249,16 @@ private fun SoftRunner17dContent(
                         officialHeadline.value,
                         style = TextStyle(
                             color = ColorProvider(officialColor),
-                            fontSize = (15.5f * factor).sp,
+                            fontSize = (14.0f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
-                    Spacer(GlanceModifier.height((3 * factor).dp))
+                    Spacer(GlanceModifier.height((2 * factor).dp))
                     Text(
                         previewHeadline.label,
                         style = TextStyle(
                             color = ColorProvider(previewColor),
-                            fontSize = (10.8f * factor).sp,
+                            fontSize = (9.8f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
@@ -268,14 +266,14 @@ private fun SoftRunner17dContent(
                         previewHeadline.value,
                         style = TextStyle(
                             color = ColorProvider(previewColor),
-                            fontSize = (13.2f * factor).sp,
+                            fontSize = (11.8f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
                 }
             }
 
-            Spacer(GlanceModifier.height((2 * footerFactor).dp))
+            Spacer(GlanceModifier.height((5 * footerFactor).dp))
 
             // Keep the footer nested so both outer and inner Glance containers stay
             // well below the 10-direct-child app-widget limit.
@@ -323,7 +321,7 @@ private fun SoftRunner17dContent(
                         .padding(end = (22 * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(statusColor),
-                        fontSize = (8.4f * footerFactor).sp,
+                        fontSize = (8.8f * footerFactor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
