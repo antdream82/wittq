@@ -197,9 +197,14 @@ private fun SoftRunner17dContent(
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
     val officialBaseColor = targetColor(snapshot.officialTarget)
     val previewBaseColor = if (previewDiffers) targetColor(snapshot.previewTarget) else officialBaseColor
-    // OFFICIAL stays vivid; PREVIEW is slightly desaturated so it reads as secondary.
+    // OFFICIAL stays vivid; PREVIEW uses a related but visibly shifted companion hue.
     val officialColor = blendColor(officialBaseColor, Color.Black, 0.08f)
-    val previewColor = blendColor(previewBaseColor, Color(0xFF8E8E93), 0.22f)
+    val previewColor = when {
+        snapshot.previewTarget <= 0.01 -> blendColor(previewBaseColor, Color(0xFFD97A72), 0.62f)
+        snapshot.previewTarget < 50.0 -> blendColor(previewBaseColor, Color(0xFFD4B45F), 0.68f)
+        snapshot.previewTarget < 90.0 -> blendColor(previewBaseColor, Color(0xFF69A6C7), 0.62f)
+        else -> blendColor(previewBaseColor, Color(0xFF69B88B), 0.62f)
+    }
     val officialHeadline = targetHeadline("OFFICIAL", snapshot.officialTarget)
     val previewHeadline = targetHeadline("PREVIEW", snapshot.previewTarget)
     val statusColor = if (snapshot.stale) Color(0xFFFF453A) else Color(0xFFB0B0B5)
