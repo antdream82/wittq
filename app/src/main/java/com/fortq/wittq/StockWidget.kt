@@ -81,9 +81,6 @@ class StockWidget : GlanceAppWidget() {
     private fun drawChart(prices: List<Double>, sma: List<Double?>): Bitmap? {
         if (prices.size < 2) return null
 
-        // This aspect is intentionally less panoramic than the previous 420x180
-        // canvas. The Image fills the actual chart cell, so the graph uses the
-        // available vertical space in the intended ~4:3 widget.
         val width = 600
         val height = 320
         val bitmap = createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -191,14 +188,17 @@ private fun SoftRunner17dContent(
     lastUpdate: String,
     size: DpSize,
 ) {
-    // Scale from both dimensions. Width-only scaling made text too small when a
-    // wide template was rendered inside the taller home-screen widget.
     val factor = minOf(
         size.width.value / 380f,
         size.height.value / 290f,
     ).coerceIn(0.80f, 1.12f)
     val footerFactor = factor.coerceAtMost(1.0f)
     val rightWidth = (size.width.value * 0.31f).coerceIn(104f, 138f)
+
+    // Reserve footer space explicitly. A weighted chart row could consume the
+    // extra launcher height and still push the fourth footer row outside the card.
+    // The top section now stays compact and the full 4-line footer always has room.
+    val topHeight = (size.height.value * 0.53f).coerceIn(120f, 165f)
 
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
     val officialColor = targetColor(snapshot.officialTarget)
@@ -212,7 +212,7 @@ private fun SoftRunner17dContent(
             .fillMaxSize()
             .background(Color(0xFF1C1C1E))
             .cornerRadius(28.dp)
-            .padding(horizontal = (16 * factor).dp, vertical = (11 * factor).dp),
+            .padding(horizontal = (16 * factor).dp, vertical = (10 * factor).dp),
     ) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
             Text(
@@ -223,11 +223,11 @@ private fun SoftRunner17dContent(
                     fontWeight = FontWeight.Bold,
                 ),
             )
-            Spacer(GlanceModifier.height((4 * factor).dp))
+            Spacer(GlanceModifier.height((3 * factor).dp))
 
-            // Top row only: chart + large target summary. All diagnostics below
-            // intentionally span the full card width.
-            Row(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+            // Only this top block is split horizontally. The footer below spans
+            // the full card width.
+            Row(modifier = GlanceModifier.fillMaxWidth().height(topHeight.dp)) {
                 if (chart != null) {
                     Image(
                         provider = ImageProvider(chart),
@@ -249,7 +249,7 @@ private fun SoftRunner17dContent(
                         officialHeadline.label,
                         style = TextStyle(
                             color = ColorProvider(officialColor),
-                            fontSize = (13.5f * factor).sp,
+                            fontSize = (12.0f * factor).sp,
                             fontWeight = FontWeight.Bold,
                         ),
                     )
@@ -261,7 +261,7 @@ private fun SoftRunner17dContent(
                             fontWeight = FontWeight.Bold,
                         ),
                     )
-                    Spacer(GlanceModifier.height((6 * factor).dp))
+                    Spacer(GlanceModifier.height((5 * factor).dp))
                     Text(
                         previewHeadline.label,
                         style = TextStyle(
@@ -281,7 +281,7 @@ private fun SoftRunner17dContent(
                 }
             }
 
-            Spacer(GlanceModifier.height((4 * footerFactor).dp))
+            Spacer(GlanceModifier.height((3 * footerFactor).dp))
 
             Text(
                 "Reason ${compactReason(snapshot.reason)} · Runner ${runnerStatusLabel(snapshot.runnerStatus)} · Release ${releaseStatusLabel(snapshot.releaseStatus)} · Contra ${onOff(snapshot.contrarianActive)} · Risk ${onOff(snapshot.hardRisk)}",
@@ -292,17 +292,9 @@ private fun SoftRunner17dContent(
                     fontWeight = FontWeight.Bold,
                 ),
             )
-            Spacer(GlanceModifier.height((1.5f * footerFactor).dp))
-            Text(
-                "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
-                modifier = GlanceModifier.fillMaxWidth(),
-                style = TextStyle(
-                    color = ColorProvider(Color.White),
-                    fontSize = (8.5f * footerFactor).sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
-            Spacer(GlanceModifier.height((1.5f * footerFactor).dp))
+            Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
+
+            // Price / moving-average / disparity is the primary market-state row.
             Text(
                 "TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"} · Disp ${formatDisp(snapshot.tqqqSma290Ratio)}",
                 modifier = GlanceModifier.fillMaxWidth(),
@@ -312,22 +304,35 @@ private fun SoftRunner17dContent(
                     fontWeight = FontWeight.Bold,
                 ),
             )
-            Spacer(GlanceModifier.height((1.5f * footerFactor).dp))
+            Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
+
+            // Performance follows current market state.
+            Text(
+                "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
+                modifier = GlanceModifier.fillMaxWidth(),
+                style = TextStyle(
+                    color = ColorProvider(Color.White),
+                    fontSize = (8.5f * footerFactor).sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+            Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
+
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)} · Upd $lastUpdate",
                     modifier = GlanceModifier.defaultWeight(),
                     style = TextStyle(
                         color = ColorProvider(statusColor),
-                        fontSize = (7.5f * footerFactor).sp,
+                        fontSize = (7.2f * footerFactor).sp,
                     ),
                 )
-                Spacer(GlanceModifier.width((5 * footerFactor).dp))
+                Spacer(GlanceModifier.width((4 * footerFactor).dp))
                 Image(
                     provider = ImageProvider(R.drawable.ic_refresh),
                     contentDescription = "Refresh 17d",
                     modifier = GlanceModifier
-                        .size((14 * factor).dp)
+                        .size((13 * factor).dp)
                         .clickable(actionRunCallback<RefreshSoftRunner17dCallback>()),
                 )
             }
