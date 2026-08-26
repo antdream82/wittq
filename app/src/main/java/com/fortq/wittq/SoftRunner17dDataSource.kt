@@ -16,9 +16,12 @@ object SoftRunner17dDataSource {
     private val newYorkZone: ZoneId = ZoneId.of("America/New_York")
     private val officialCutoff: LocalTime = LocalTime.of(16, 20)
 
-    private const val BOOTSTRAP_SOURCE = "period-2010-daily"
+    private const val BOOTSTRAP_SOURCE = "period-2010-daily-v3"
     private const val NORMAL_REFRESH_RANGE = "1mo"
     private const val MIN_BOOTSTRAP_ROWS = 290
+    // All four strategy symbols have well over 3,000 daily sessions since 2010.
+    // A response below this is not accepted as a canonical full-history rebuild.
+    private const val MIN_CANONICAL_BOOTSTRAP_ROWS = 3_000
     private const val BOOTSTRAP_RETRY_DELAY_MS = 900L
     private val bootstrapStartEpochSec: Long = LocalDate.of(2010, 2, 1)
         .atStartOfDay(ZoneOffset.UTC)
@@ -34,18 +37,19 @@ object SoftRunner17dDataSource {
 
         suspend fun loadSymbol(symbol: String): MarketData {
             val before = store.stats(symbol)
-            val bootstrapped = store.isBootstrapComplete(symbol) && before.rowCount >= MIN_BOOTSTRAP_ROWS
+            val bootstrapped = store.isBootstrapComplete(symbol) &&
+                before.rowCount >= MIN_CANONICAL_BOOTSTRAP_ROWS
 
-            var sourceRange: String
-            var network: MarketData?
+            val sourceRange: String
+            val network: MarketData?
 
             if (!bootstrapped) {
-                // Do not use Yahoo range=max here. Long max requests can be
-                // silently coarsened to monthly data (~199 TQQQ rows since 2010).
-                // Explicit period bounds force true 1d bars from strategy inception.
+                // Canonical rebuild: fetch the entire strategy era with explicit
+                // period bounds, validate it, then atomically REPLACE this symbol.
+                // Old device-specific rows never survive a successful v3 rebuild.
                 val period2 = nowMillis / 1000L + 86_400L
                 sourceRange = BOOTSTRAP_SOURCE
-                network = StockApiEngine.fetchMarketDataPeriod(
+                var candidate = StockApiEngine.fetchMarketDataPeriod(
                     context = context,
                     symbol = symbol,
                     period1EpochSec = bootstrapStartEpochSec,
@@ -53,14 +57,14 @@ object SoftRunner17dDataSource {
                     interval = "1d",
                 )
 
-                if (network == null || network.safeHistory().size < MIN_BOOTSTRAP_ROWS) {
-                    val received = network?.safeHistory()?.size ?: 0
+                if (candidate == null || candidate.safeHistory().size < MIN_CANONICAL_BOOTSTRAP_ROWS) {
+                    val received = candidate?.safeHistory()?.size ?: 0
                     Log.w(
                         "SOFT_RUNNER_17D_DB",
-                        "$symbol explicit-period bootstrap returned $received rows; retrying once",
+                        "$symbol canonical bootstrap returned $received rows; retrying once",
                     )
                     delay(BOOTSTRAP_RETRY_DELAY_MS)
-                    network = StockApiEngine.fetchMarketDataPeriod(
+                    candidate = StockApiEngine.fetchMarketDataPeriod(
                         context = context,
                         symbol = symbol,
                         period1EpochSec = bootstrapStartEpochSec,
@@ -68,27 +72,36 @@ object SoftRunner17dDataSource {
                         interval = "1d",
                     )
                 }
+
+                requireNotNull(candidate) {
+                    "$symbol canonical bootstrap unavailable; existing database left unchanged"
+                }
+                require(candidate.safeHistory().size >= MIN_CANONICAL_BOOTSTRAP_ROWS) {
+                    "$symbol canonical bootstrap returned only ${candidate.safeHistory().size} rows; " +
+                        "$MIN_CANONICAL_BOOTSTRAP_ROWS+ required"
+                }
+
+                store.replaceBootstrap(
+                    symbol = symbol,
+                    data = candidate,
+                    sourceRange = sourceRange,
+                    fetchedAtMillis = nowMillis,
+                    minRows = MIN_CANONICAL_BOOTSTRAP_ROWS,
+                )
+                network = candidate
             } else {
                 sourceRange = chooseIncrementalRange(before.latestDate, today)
                 network = StockApiEngine.fetchMarketData(context, symbol, sourceRange)
+                if (network != null) {
+                    store.upsert(symbol, network, sourceRange, nowMillis)
+                }
             }
 
-            if (network != null) {
-                store.upsert(symbol, network, sourceRange, nowMillis)
-                val after = store.stats(symbol)
-                if (!bootstrapped && after.rowCount >= MIN_BOOTSTRAP_ROWS) {
-                    store.markBootstrapComplete(symbol)
-                }
-                Log.d(
-                    "SOFT_RUNNER_17D_DB",
-                    "$symbol refresh=$sourceRange localRows=${after.rowCount} localLatest=${after.latestDate}",
-                )
-            } else {
-                Log.w(
-                    "SOFT_RUNNER_17D_DB",
-                    "$symbol network refresh failed for $sourceRange; attempting durable local history",
-                )
-            }
+            val after = store.stats(symbol)
+            Log.d(
+                "SOFT_RUNNER_17D_DB",
+                "$symbol refresh=$sourceRange localRows=${after.rowCount} localLatest=${after.latestDate}",
+            )
 
             val local = store.read(symbol)
             requireNotNull(local) { "$symbol local history unavailable; refresh to retry bootstrap" }
@@ -107,8 +120,8 @@ object SoftRunner17dDataSource {
             }
         }
 
-        // Deliberately sequential. Each successful symbol is durable, so a later
-        // Yahoo failure does not make already-completed bootstrap work repeat.
+        // Deliberately sequential. Each successful symbol replacement is durable,
+        // while a failed later symbol leaves the last good snapshot untouched.
         val tqqq = loadSymbol("TQQQ")
         val qqq = loadSymbol("QQQ")
         val spy = loadSymbol("SPY")
