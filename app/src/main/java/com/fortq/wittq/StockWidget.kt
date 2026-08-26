@@ -47,9 +47,6 @@ class StockWidget : GlanceAppWidget() {
 
     @SuppressLint("RestrictedApi")
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // Rendering stays local. If there is still no good snapshot, merely ensure
-        // one cancellation-safe WorkManager bootstrap attempt; no network call is
-        // owned by Glance itself.
         val snapshot = SoftRunner17dSnapshotStore.read(context)
         if (snapshot == null) {
             AutoRefreshScheduler.ensureStockNow(context)
@@ -235,10 +232,10 @@ private fun SoftRunner17dContent(
                 InfoLine("Runner", "${snapshot.runnerStatus}/${snapshot.releaseStatus}", factor)
                 InfoLine("Contrarian", if (snapshot.contrarianActive) "ACTIVE" else "OFF", factor)
                 InfoLine("HardRisk", if (snapshot.hardRisk) "ON" else "OFF", factor)
-                InfoLine("Cheap/Reclaim", "${flag(snapshot.contrarianCheap)}/${flag(snapshot.contrarianReclaim)}", factor)
+                InfoLine("1Y/6M/3M", compactTrailingReturnSummary(snapshot), factor)
                 InfoLine("TQQQ", String.format(Locale.US, "\$%.2f", snapshot.tqqqClose), factor)
                 InfoLine("SMA290", snapshot.tqqqSma290?.let { String.format(Locale.US, "\$%.2f", it) } ?: "-", factor)
-                InfoLine("1Y/6M/3M", compactTrailingReturnSummary(snapshot), factor)
+                InfoLine("Ratio", snapshot.tqqqSma290Ratio?.let { String.format(Locale.US, "%.2f%%", it * 100) } ?: "-", factor)
                 Text(
                     trailingReturnSummary(snapshot),
                     modifier = GlanceModifier.fillMaxWidth(),
