@@ -41,8 +41,6 @@ class RefreshSoftRunner17dCallback : ActionCallback {
 }
 
 class StockWidget : GlanceAppWidget() {
-    // Exact mode makes the composition use the launcher-provided size instead of
-    // stretching one of a few very-wide templates into a ~4:3 widget.
     override val sizeMode = SizeMode.Exact
 
     @SuppressLint("RestrictedApi")
@@ -91,7 +89,6 @@ class StockWidget : GlanceAppWidget() {
         val max = values.maxOrNull() ?: return null
         val range = (max - min).coerceAtLeast(0.01)
 
-        // Keep a real plot inset so extrema are not clipped by the bitmap edge.
         val plotLeft = 6f
         val plotRight = width - 6f
         val plotTop = 10f
@@ -195,10 +192,8 @@ private fun SoftRunner17dContent(
     val footerFactor = factor.coerceAtMost(1.0f)
     val rightWidth = (size.width.value * 0.31f).coerceIn(104f, 138f)
 
-    // Keep the visual block deliberately compact. The actual Samsung launcher
-    // screenshot has ample footer space, so the chart does not need to consume
-    // more than roughly the upper half of the card.
-    val topHeight = (size.height.value * 0.44f).coerceIn(100f, 140f)
+    // Keep the visual block compact so the four-line footer reads as one section.
+    val topHeight = (size.height.value * 0.38f).coerceIn(90f, 122f)
 
     val previewDiffers = abs(snapshot.previewTarget - snapshot.officialTarget) >= 0.01
     val officialColor = targetColor(snapshot.officialTarget)
@@ -281,56 +276,59 @@ private fun SoftRunner17dContent(
 
             Spacer(GlanceModifier.height((3 * footerFactor).dp))
 
-            Text(
-                "Reason ${compactReason(snapshot.reason)} · Runner ${runnerStatusLabel(snapshot.runnerStatus)} · Release ${releaseStatusLabel(snapshot.releaseStatus)} · Contra ${onOff(snapshot.contrarianActive)} · Risk ${onOff(snapshot.hardRisk)}",
-                modifier = GlanceModifier.fillMaxWidth(),
-                style = TextStyle(
-                    color = ColorProvider(Color(0xFFB0B0B5)),
-                    fontSize = (8.0f * footerFactor).sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
-            Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
+            // Glance app-widget Row/Column containers support at most 10 direct
+            // children. Keep all footer lines inside one nested Column so the
+            // outer Column stays well below that hard limit.
+            Column(modifier = GlanceModifier.fillMaxWidth()) {
+                Text(
+                    "Reason ${compactReason(snapshot.reason)} · Runner ${runnerStatusLabel(snapshot.runnerStatus)} · Release ${releaseStatusLabel(snapshot.releaseStatus)} · Contra ${onOff(snapshot.contrarianActive)} · Risk ${onOff(snapshot.hardRisk)}",
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(bottom = (1.0f * footerFactor).dp),
+                    style = TextStyle(
+                        color = ColorProvider(Color(0xFFB0B0B5)),
+                        fontSize = (8.0f * footerFactor).sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
 
-            Text(
-                "TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"} · Disp ${formatDisp(snapshot.tqqqSma290Ratio)}",
-                modifier = GlanceModifier.fillMaxWidth(),
-                style = TextStyle(
-                    color = ColorProvider(Color.White),
-                    fontSize = (8.5f * footerFactor).sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
-            Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
+                Text(
+                    "TQQQ ${money(snapshot.tqqqClose)} · SMA290 ${snapshot.tqqqSma290?.let(::money) ?: "-"} · Disp ${formatDisp(snapshot.tqqqSma290Ratio)}",
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(bottom = (1.0f * footerFactor).dp),
+                    style = TextStyle(
+                        color = ColorProvider(Color.White),
+                        fontSize = (8.5f * footerFactor).sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
 
-            Text(
-                "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
-                modifier = GlanceModifier.fillMaxWidth(),
-                style = TextStyle(
-                    color = ColorProvider(Color.White),
-                    fontSize = (8.5f * footerFactor).sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
-            Spacer(GlanceModifier.height((1.0f * footerFactor).dp))
+                Text(
+                    "1Y ${formatReturn(snapshot.trailingReturn1y)} · 6M ${formatReturn(snapshot.trailingReturn6m)} · 3M ${formatReturn(snapshot.trailingReturn3m)}",
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(bottom = (1.0f * footerFactor).dp),
+                    style = TextStyle(
+                        color = ColorProvider(Color.White),
+                        fontSize = (8.5f * footerFactor).sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
 
-            // Keep the fourth footer row as a plain Text. On Samsung's launcher,
-            // a Row containing a weighted Text plus the refresh Image was measured
-            // at zero height even though blank vertical space remained below it.
-            Text(
-                "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)} · Upd $lastUpdate",
-                modifier = GlanceModifier
-                    .fillMaxWidth()
-                    .padding(end = (22 * footerFactor).dp),
-                style = TextStyle(
-                    color = ColorProvider(statusColor),
-                    fontSize = (7.0f * footerFactor).sp,
-                ),
-            )
+                Text(
+                    "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)} · Upd $lastUpdate",
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(end = (22 * footerFactor).dp),
+                    style = TextStyle(
+                        color = ColorProvider(statusColor),
+                        fontSize = (7.2f * footerFactor).sp,
+                    ),
+                )
+            }
         }
 
-        // Overlay the refresh affordance instead of letting it participate in the
-        // footer row's measurement. This keeps both the last line and the button.
         Box(
             modifier = GlanceModifier.fillMaxSize(),
             contentAlignment = Alignment.BottomEnd,
