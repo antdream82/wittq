@@ -29,7 +29,12 @@ data class SoftRunner17dWidgetSnapshot(
 
 object SoftRunner17dSnapshotStore {
     private const val PREFS = "SoftRunner17dSnapshot"
-    private const val KEY_SNAPSHOT = "snapshot_v1"
+
+    // v2 deliberately invalidates every pre-cost snapshot once. The durable
+    // SQLite history is untouched; only the rendered/calculated snapshot is
+    // regenerated so a changed performance-accounting model cannot keep showing
+    // an old cached 1Y/6M/3M result after an APK update.
+    private const val KEY_SNAPSHOT = "snapshot_v2_cost25bp"
     private const val KEY_ERROR = "last_refresh_error"
     private const val KEY_ERROR_AT = "last_refresh_error_at"
 
