@@ -27,6 +27,12 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         val latestDate: LocalDate?,
     )
 
+    private data class CanonicalBar(
+        val date: LocalDate,
+        val timestamp: Long,
+        val close: Double,
+    )
+
     private val newYorkZone: ZoneId = ZoneId.of("America/New_York")
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -66,6 +72,41 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         if (oldVersion < 1) onCreate(db)
     }
 
+    private fun canonicalBars(data: MarketData): List<CanonicalBar> {
+        // One durable row per NY trading date. If a response ever contains more
+        // than one timestamp for a date, keep the latest occurrence deterministically.
+        val byDate = linkedMapOf<LocalDate, CanonicalBar>()
+        data.safeTimestamps().zip(data.safeHistory()).forEach { (timestamp, close) ->
+            if (!close.isFinite() || close <= 0.0) return@forEach
+            val date = Instant.ofEpochMilli(timestamp).atZone(newYorkZone).toLocalDate()
+            byDate[date] = CanonicalBar(date, timestamp, close)
+        }
+        return byDate.values.sortedBy { it.date }
+    }
+
+    private fun insertBar(
+        db: SQLiteDatabase,
+        canonicalSymbol: String,
+        bar: CanonicalBar,
+        sourceRange: String,
+        fetchedAtMillis: Long,
+    ): Boolean {
+        val values = ContentValues().apply {
+            put("symbol", canonicalSymbol)
+            put("trading_date", bar.date.toString())
+            put("timestamp_ms", bar.timestamp)
+            put("close", bar.close)
+            put("fetched_at_ms", fetchedAtMillis)
+            put("source_range", sourceRange)
+        }
+        return db.insertWithOnConflict(
+            TABLE_BARS,
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_REPLACE,
+        ) != -1L
+    }
+
     @Synchronized
     fun upsert(
         symbol: String,
@@ -74,39 +115,73 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         fetchedAtMillis: Long = System.currentTimeMillis(),
     ): Int {
         val canonicalSymbol = canonicalSymbol(symbol)
-        val pairs = data.safeTimestamps().zip(data.safeHistory()).mapNotNull { (timestamp, close) ->
-            if (!close.isFinite() || close <= 0.0) return@mapNotNull null
-            val date = Instant.ofEpochMilli(timestamp).atZone(newYorkZone).toLocalDate()
-            Triple(date, timestamp, close)
-        }
-        if (pairs.isEmpty()) return 0
+        val bars = canonicalBars(data)
+        if (bars.isEmpty()) return 0
 
         val db = writableDatabase
         var changed = 0
         db.beginTransaction()
         try {
-            for ((date, timestamp, close) in pairs) {
-                val values = ContentValues().apply {
-                    put("symbol", canonicalSymbol)
-                    put("trading_date", date.toString())
-                    put("timestamp_ms", timestamp)
-                    put("close", close)
-                    put("fetched_at_ms", fetchedAtMillis)
-                    put("source_range", sourceRange)
-                }
-                val rowId = db.insertWithOnConflict(
-                    TABLE_BARS,
-                    null,
-                    values,
-                    SQLiteDatabase.CONFLICT_REPLACE,
-                )
-                if (rowId != -1L) changed += 1
+            for (bar in bars) {
+                if (insertBar(db, canonicalSymbol, bar, sourceRange, fetchedAtMillis)) changed += 1
             }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
         }
         return changed
+    }
+
+    /**
+     * Atomically replaces one symbol with a fully validated canonical bootstrap.
+     * Existing rows remain untouched unless every replacement row can be written,
+     * preventing a failed bootstrap from destroying a previously usable database.
+     */
+    @Synchronized
+    fun replaceBootstrap(
+        symbol: String,
+        data: MarketData,
+        sourceRange: String,
+        fetchedAtMillis: Long = System.currentTimeMillis(),
+        minRows: Int,
+    ): Int {
+        val canonicalSymbol = canonicalSymbol(symbol)
+        val bars = canonicalBars(data)
+        require(bars.size >= minRows) {
+            "$symbol canonical bootstrap has only ${bars.size} rows; $minRows+ required"
+        }
+        require(hasDailyCadence(bars)) {
+            "$symbol canonical bootstrap does not have valid recent daily cadence"
+        }
+
+        val db = writableDatabase
+        var inserted = 0
+        db.beginTransaction()
+        try {
+            db.delete(TABLE_BARS, "symbol = ?", arrayOf(canonicalSymbol))
+            for (bar in bars) {
+                check(insertBar(db, canonicalSymbol, bar, sourceRange, fetchedAtMillis)) {
+                    "Failed to insert canonical $symbol row ${bar.date}"
+                }
+                inserted += 1
+            }
+            val meta = ContentValues().apply {
+                put("meta_key", bootstrapKey(symbol))
+                put("meta_value", BOOTSTRAP_VERSION)
+            }
+            check(
+                db.insertWithOnConflict(
+                    TABLE_META,
+                    null,
+                    meta,
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                ) != -1L,
+            ) { "Failed to mark canonical $symbol bootstrap complete" }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return inserted
     }
 
     fun read(symbol: String): MarketData? {
@@ -174,6 +249,12 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         }
     }
 
+    private fun hasDailyCadence(bars: List<CanonicalBar>): Boolean {
+        val latest = bars.lastOrNull()?.date ?: return false
+        val cutoff = latest.minusDays(370)
+        return bars.count { !it.date.isBefore(cutoff) && !it.date.isAfter(latest) } >= MIN_RECENT_DAILY_ROWS
+    }
+
     fun isBootstrapComplete(symbol: String): Boolean =
         getMeta(bootstrapKey(symbol)) == BOOTSTRAP_VERSION && hasDailyCadence(symbol)
 
@@ -225,10 +306,10 @@ class SoftRunner17dHistoryStore private constructor(context: Context) :
         private const val TABLE_BARS = "daily_bars"
         private const val TABLE_META = "metadata"
 
-        // v1 accepted row-count-only histories, allowing old QQQ/SPY/VIX monthly
-        // data to remain marked complete. v2 intentionally forces one daily-period
-        // rebootstrap for every shared symbol after upgrade.
-        private const val BOOTSTRAP_VERSION = "v2-daily-period"
+        // v3 intentionally forces one full canonical replacement per symbol.
+        // v2 only UPSERTed a fresh daily response into whatever rows were already
+        // on device, allowing two phones to retain different historical datasets.
+        private const val BOOTSTRAP_VERSION = "v3-canonical-replace"
         private const val MIN_RECENT_DAILY_ROWS = 180
 
         @Volatile
