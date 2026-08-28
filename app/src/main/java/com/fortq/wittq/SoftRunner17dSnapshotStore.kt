@@ -30,11 +30,14 @@ data class SoftRunner17dWidgetSnapshot(
 object SoftRunner17dSnapshotStore {
     private const val PREFS = "SoftRunner17dSnapshot"
 
-    // v2 deliberately invalidates every pre-cost snapshot once. The durable
-    // SQLite history is untouched; only the rendered/calculated snapshot is
-    // regenerated so a changed performance-accounting model cannot keep showing
-    // an old cached 1Y/6M/3M result after an APK update.
-    private const val KEY_SNAPSHOT = "snapshot_v2_cost25bp"
+    // v3 invalidates both the old gross snapshot and the short-lived 25 bp
+    // accounting snapshot. SQLite market history is preserved; only the derived
+    // widget snapshot is regenerated with the frozen Production 10 bp model.
+    private const val KEY_SNAPSHOT = "snapshot_v3_cost10bp"
+    private val LEGACY_SNAPSHOT_KEYS = listOf(
+        "snapshot_v1",
+        "snapshot_v2_cost25bp",
+    )
     private const val KEY_ERROR = "last_refresh_error"
     private const val KEY_ERROR_AT = "last_refresh_error_at"
 
@@ -72,8 +75,10 @@ object SoftRunner17dSnapshotStore {
             put("updatedAtMillis", snapshot.updatedAtMillis)
         }
 
-        prefs(context).edit()
+        val editor = prefs(context).edit()
             .putString(KEY_SNAPSHOT, json.toString())
+        LEGACY_SNAPSHOT_KEYS.forEach { key -> editor.remove(key) }
+        editor
             .remove(KEY_ERROR)
             .remove(KEY_ERROR_AT)
             .commit()
@@ -107,9 +112,8 @@ object SoftRunner17dSnapshotStore {
             )
         }.getOrNull() ?: return null
 
-        // A failed canonical repair used to be invisible whenever an older valid
-        // snapshot existed. Preserve its values, but visibly mark them stale and
-        // surface the actual worker failure until a successful save clears it.
+        // Preserve last-known values after a failed canonical repair, but surface
+        // the failure until a successful save clears it.
         val error = getError(context)
         if (error.isNullOrBlank()) return parsed
 
