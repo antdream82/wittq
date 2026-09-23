@@ -434,6 +434,11 @@ private fun compactStatusMessage(status: String): String = when {
     else -> status
 }
 
+private fun shortTime(value: Long): String = when {
+    value <= 0L -> "-"
+    else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(value))
+}
+
 private fun money(value: Double): String = String.format(Locale.US, "\$%.2f", value)
 private fun onOff(value: Boolean): String = if (value) "ON" else "OFF"
 
