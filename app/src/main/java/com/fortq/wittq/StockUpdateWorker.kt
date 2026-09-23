@@ -20,6 +20,7 @@ class StockUpdateWorker(
             ?: AutoRefreshScheduler.WORK_KIND_MANUAL
         AutoRefreshScheduler.recordWorkerStart(context, workKind)
         var snapshot: SoftRunner17dAppSnapshot? = null
+        var autoSuccessorScheduled = false
 
         try {
             val loaded = SoftRunner17dDataSource.load(context)
@@ -27,10 +28,22 @@ class StockUpdateWorker(
             SoftRunner17dNotifier.process(context, loaded)
             SoftRunner17dSnapshotStore.save(context, loaded)
 
+            if (workKind == AutoRefreshScheduler.WORK_KIND_AUTO) {
+                val todayNy = LocalDate.now(MarketRefreshSchedule.newYorkZone)
+                AutoRefreshScheduler.scheduleStock(
+                    context = context,
+                    append = true,
+                    closeFinalized = loaded.officialDate == todayNy,
+                )
+                autoSuccessorScheduled = true
+            }
+
+            // Record before updateAll so this render can display the current UI
+            // refresh request time rather than the previous cycle's value.
+            AutoRefreshScheduler.recordWidgetUpdate(context)
             StockWidget().updateAll(context)
             AGTQWidget().updateAll(context)
             SnowWidget().updateAll(context)
-            AutoRefreshScheduler.recordWidgetUpdate(context)
             Result.success()
         } catch (e: CancellationException) {
             throw e
@@ -53,22 +66,21 @@ class StockUpdateWorker(
             SoftRunner17dSnapshotStore.setError(context, detail)
             Log.e("WITTQ_WORKER", "Shared market refresh failed: $detail", e)
 
-            StockWidget().updateAll(context)
-            AGTQWidget().updateAll(context)
-            SnowWidget().updateAll(context)
-            AutoRefreshScheduler.recordWidgetUpdate(context)
-
-            scheduleRepairRetry(context)
-            Result.success()
-        } finally {
-            if (workKind == AutoRefreshScheduler.WORK_KIND_AUTO) {
-                val todayNy = LocalDate.now(MarketRefreshSchedule.newYorkZone)
+            if (workKind == AutoRefreshScheduler.WORK_KIND_AUTO && !autoSuccessorScheduled) {
                 AutoRefreshScheduler.scheduleStock(
                     context = context,
                     append = true,
-                    closeFinalized = snapshot?.officialDate == todayNy,
+                    closeFinalized = false,
                 )
+                autoSuccessorScheduled = true
             }
+
+            scheduleRepairRetry(context)
+            AutoRefreshScheduler.recordWidgetUpdate(context)
+            StockWidget().updateAll(context)
+            AGTQWidget().updateAll(context)
+            SnowWidget().updateAll(context)
+            Result.success()
         }
     }
 
@@ -104,7 +116,7 @@ class StockUpdateWorker(
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             REPAIR_WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request,
         )
         Log.d("WITTQ_WORKER", "Scheduled canonical repair retry in $REPAIR_RETRY_MINUTES min")
