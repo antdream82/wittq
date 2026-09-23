@@ -66,7 +66,11 @@ object StockApiEngine {
     private const val CACHE_PREFS = "YahooCache"
     private const val CACHE_PREFIX = "market_data_"
     private const val CACHE_LAST_ERROR = "last_yahoo_error"
-    private const val CACHE_TTL_MS = 15 * 60 * 1000L
+    private const val CACHE_LAST_NETWORK_FETCH_MS = "last_network_fetch_ms"
+    // The market worker is scheduled on 15-minute slots. Keep cache TTL shorter
+    // than the slot so a slightly early/late WorkManager wake-up still performs
+    // one real Yahoo refresh per active-market slot.
+    private const val CACHE_TTL_MS = 10 * 60 * 1000L
     private const val LONG_HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
     private const val CACHE_STALE_MS = 24 * 60 * 60 * 1000L
     private const val MIN_MAX_HISTORY_ROWS = 290
@@ -113,6 +117,13 @@ object StockApiEngine {
     }
 
     fun getLastError(context: Context): String? = prefs(context).getString(CACHE_LAST_ERROR, null)
+
+    fun getLastNetworkFetchAt(context: Context): Long =
+        prefs(context).getLong(CACHE_LAST_NETWORK_FETCH_MS, 0L)
+
+    private fun markNetworkFetch(context: Context, atMillis: Long = System.currentTimeMillis()) {
+        prefs(context).edit { putLong(CACHE_LAST_NETWORK_FETCH_MS, atMillis) }
+    }
 
     private fun readCachedMarketData(
         context: Context,
@@ -217,6 +228,7 @@ object StockApiEngine {
                 setLastError(context, "Yahoo $symbol period bootstrap failed: no valid daily bars")
                 return@withLock null
             }
+            markNetworkFetch(context)
             setLastError(context, null)
             Log.d(
                 "API_CACHE",
@@ -307,6 +319,7 @@ object StockApiEngine {
             }
 
             writeCachedMarketData(context, symbol, interval, range, data, now)
+            markNetworkFetch(context, now)
             setLastError(context, null)
             Log.d("API_CACHE", "Fetched $symbol/$interval/$range (${data.history.size} bars)")
             data

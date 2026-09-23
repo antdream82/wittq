@@ -51,6 +51,7 @@ class StockWidget : GlanceAppWidget() {
         }
 
         val lastError = SoftRunner17dSnapshotStore.getError(context)
+        val refreshDiagnostics = AutoRefreshScheduler.diagnostics(context)
         val actualAttemptAt = if (snapshot != null) {
             snapshot.updatedAtMillis
         } else {
@@ -70,6 +71,7 @@ class StockWidget : GlanceAppWidget() {
                     snapshot = snapshot,
                     chart = drawChart(snapshot.priceHistory, snapshot.sma290History),
                     lastUpdate = lastUpdate,
+                    refreshDiagnostics = refreshDiagnostics,
                     size = LocalSize.current,
                 )
             }
@@ -183,6 +185,7 @@ private fun SoftRunner17dContent(
     snapshot: SoftRunner17dWidgetSnapshot,
     chart: Bitmap?,
     lastUpdate: String,
+    refreshDiagnostics: RefreshDiagnostics,
     size: DpSize,
 ) {
     // Keep typography primarily width-driven so moving from 4x3 to 4x2 does not
@@ -323,13 +326,25 @@ private fun SoftRunner17dContent(
                 )
 
                 Text(
-                    "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)} · Upd $lastUpdate",
+                    "Cheap ${onOff(snapshot.contrarianCheap)} · Reclaim ${onOff(snapshot.contrarianReclaim)} · ${compactStatusMessage(snapshot.statusMessage)}",
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(bottom = (0.7f * footerFactor).dp),
+                    style = TextStyle(
+                        color = ColorProvider(statusColor),
+                        fontSize = (8.8f * footerFactor).sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+
+                Text(
+                    "Data ${shortTime(refreshDiagnostics.lastNetworkFetchAtMillis)} · Calc ${shortTime(snapshot.updatedAtMillis)} · UI ${shortTime(refreshDiagnostics.lastWidgetUpdateAtMillis)} · Next ${shortTime(refreshDiagnostics.nextPlannedAtMillis)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
                         .padding(end = (22 * footerFactor).dp),
                     style = TextStyle(
-                        color = ColorProvider(statusColor),
-                        fontSize = (8.8f * footerFactor).sp,
+                        color = ColorProvider(Color(0xFF8E8E93)),
+                        fontSize = (8.2f * footerFactor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )

@@ -7,6 +7,7 @@ import androidx.work.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 class StockUpdateWorker(
@@ -15,16 +16,21 @@ class StockUpdateWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result = marketSyncMutex.withLock {
+        val workKind = inputData.getString(AutoRefreshScheduler.KEY_WORK_KIND)
+            ?: AutoRefreshScheduler.WORK_KIND_MANUAL
+        AutoRefreshScheduler.recordWorkerStart(context, workKind)
+        var snapshot: SoftRunner17dAppSnapshot? = null
+
         try {
-            // One shared market sync supplies 17d, AGTQ and Snow. Network work is
-            // outside Glance; widgets reuse the durable SQLite history locally.
-            val snapshot = SoftRunner17dDataSource.load(context)
-            SoftRunner17dNotifier.process(context, snapshot)
-            SoftRunner17dSnapshotStore.save(context, snapshot)
+            val loaded = SoftRunner17dDataSource.load(context)
+            snapshot = loaded
+            SoftRunner17dNotifier.process(context, loaded)
+            SoftRunner17dSnapshotStore.save(context, loaded)
 
             StockWidget().updateAll(context)
             AGTQWidget().updateAll(context)
             SnowWidget().updateAll(context)
+            AutoRefreshScheduler.recordWidgetUpdate(context)
             Result.success()
         } catch (e: CancellationException) {
             throw e
@@ -47,16 +53,22 @@ class StockUpdateWorker(
             SoftRunner17dSnapshotStore.setError(context, detail)
             Log.e("WITTQ_WORKER", "Shared market refresh failed: $detail", e)
 
-            // Keep last-known values visible, but the snapshot reader now marks
-            // them REPAIR/stale so a failed canonical rebuild cannot look current.
             StockWidget().updateAll(context)
             AGTQWidget().updateAll(context)
             SnowWidget().updateAll(context)
+            AutoRefreshScheduler.recordWidgetUpdate(context)
 
             scheduleRepairRetry(context)
             Result.success()
         } finally {
-            AutoRefreshScheduler.scheduleStock(context, append = true)
+            if (workKind == AutoRefreshScheduler.WORK_KIND_AUTO) {
+                val todayNy = LocalDate.now(MarketRefreshSchedule.newYorkZone)
+                AutoRefreshScheduler.scheduleStock(
+                    context = context,
+                    append = true,
+                    closeFinalized = snapshot?.officialDate == todayNy,
+                )
+            }
         }
     }
 
@@ -83,18 +95,23 @@ class StockUpdateWorker(
                     .setRequiredNetworkType(NetworkType.CONNECTED)
                     .build(),
             )
+            .setInputData(
+                workDataOf(
+                    AutoRefreshScheduler.KEY_WORK_KIND to AutoRefreshScheduler.WORK_KIND_REPAIR,
+                )
+            )
             .build()
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             REPAIR_WORK_NAME,
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            ExistingWorkPolicy.REPLACE,
             request,
         )
         Log.d("WITTQ_WORKER", "Scheduled canonical repair retry in $REPAIR_RETRY_MINUTES min")
     }
 
     companion object {
-        private const val REPAIR_WORK_NAME = "stock_canonical_repair_retry_v3"
+        private const val REPAIR_WORK_NAME = "stock_canonical_repair_retry_v4"
         private const val REPAIR_RETRY_MINUTES = 5L
         private val marketSyncMutex = Mutex()
 
