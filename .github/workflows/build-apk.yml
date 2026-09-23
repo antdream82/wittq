@@ -27,9 +27,6 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android 36 platform
         run: |
           yes | sdkmanager --licenses
@@ -42,8 +39,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+      - name: Test and build debug APK
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -70,9 +67,6 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android 36 platform
         run: |
           yes | sdkmanager --licenses
@@ -98,8 +92,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build release APK
-        run: ./gradlew :app:assembleRelease
+      - name: Test and build release APK
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
