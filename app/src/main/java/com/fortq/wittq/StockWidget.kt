@@ -337,14 +337,31 @@ private fun SoftRunner17dContent(
                     ),
                 )
 
+                val wake = if (refreshDiagnostics.lastTriggerSource == AutoRefreshScheduler.TRIGGER_EXACT_ALARM) {
+                    shortTime(refreshDiagnostics.lastAlarmFiredAtMillis)
+                } else {
+                    "-"
+                }
                 Text(
-                    "Data ${shortTime(refreshDiagnostics.lastNetworkFetchAtMillis)} · Calc ${shortTime(snapshot.updatedAtMillis)} · UI ${shortTime(refreshDiagnostics.lastWidgetUpdateAtMillis)} · Next ${shortTime(refreshDiagnostics.nextPlannedAtMillis)}",
+                    "Plan ${shortTime(refreshDiagnostics.nextPlannedAtMillis)} · Wake $wake · Work ${shortTime(refreshDiagnostics.lastWorkerStartAtMillis)} · ${refreshDiagnostics.lastWorkKind.ifBlank { "-" }}/${refreshDiagnostics.schedulerMode.ifBlank { "-" }}",
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(bottom = (0.5f * footerFactor).dp),
+                    style = TextStyle(
+                        color = ColorProvider(Color(0xFF8E8E93)),
+                        fontSize = (7.8f * footerFactor).sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+
+                Text(
+                    "Data ${shortTime(refreshDiagnostics.lastNetworkFetchAtMillis)} · Calc ${shortTime(refreshDiagnostics.lastCalcCompleteAtMillis)} · UI ${shortTime(refreshDiagnostics.lastWidgetUpdateAtMillis)} · Exact ${if (refreshDiagnostics.exactAlarmAllowed) "Y" else "N"} · Δ ${wakeDrift(refreshDiagnostics)}",
                     modifier = GlanceModifier
                         .fillMaxWidth()
                         .padding(end = (22 * footerFactor).dp),
                     style = TextStyle(
                         color = ColorProvider(Color(0xFF8E8E93)),
-                        fontSize = (8.2f * footerFactor).sp,
+                        fontSize = (7.8f * footerFactor).sp,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
@@ -437,6 +454,13 @@ private fun compactStatusMessage(status: String): String = when {
 private fun shortTime(value: Long): String = when {
     value <= 0L -> "-"
     else -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(value))
+}
+
+private fun wakeDrift(value: RefreshDiagnostics): String {
+    if (value.lastTriggerSource != AutoRefreshScheduler.TRIGGER_EXACT_ALARM) return "-"
+    if (value.lastAlarmPlannedAtMillis <= 0L || value.lastAlarmFiredAtMillis <= 0L) return "-"
+    val minutes = (value.lastAlarmFiredAtMillis - value.lastAlarmPlannedAtMillis) / 60_000.0
+    return String.format(Locale.US, "%+.1fm", minutes)
 }
 
 private fun money(value: Double): String = String.format(Locale.US, "\$%.2f", value)

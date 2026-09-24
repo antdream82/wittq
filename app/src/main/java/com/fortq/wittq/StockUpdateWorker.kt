@@ -18,13 +18,20 @@ class StockUpdateWorker(
     override suspend fun doWork(): Result = marketSyncMutex.withLock {
         val workKind = inputData.getString(AutoRefreshScheduler.KEY_WORK_KIND)
             ?: AutoRefreshScheduler.WORK_KIND_MANUAL
-        AutoRefreshScheduler.recordWorkerStart(context, workKind)
+        val triggerSource = inputData.getString(AutoRefreshScheduler.KEY_TRIGGER_SOURCE)
+            ?: when (workKind) {
+                AutoRefreshScheduler.WORK_KIND_REPAIR -> AutoRefreshScheduler.TRIGGER_REPAIR
+                AutoRefreshScheduler.WORK_KIND_AUTO -> AutoRefreshScheduler.TRIGGER_WORK_FALLBACK
+                else -> AutoRefreshScheduler.TRIGGER_MANUAL
+            }
+        AutoRefreshScheduler.recordWorkerStart(context, workKind, triggerSource)
         var snapshot: SoftRunner17dAppSnapshot? = null
         var autoSuccessorScheduled = false
 
         try {
             val loaded = SoftRunner17dDataSource.load(context)
             snapshot = loaded
+            AutoRefreshScheduler.recordCalcComplete(context)
             SoftRunner17dNotifier.process(context, loaded)
             SoftRunner17dSnapshotStore.save(context, loaded)
 
@@ -110,6 +117,7 @@ class StockUpdateWorker(
             .setInputData(
                 workDataOf(
                     AutoRefreshScheduler.KEY_WORK_KIND to AutoRefreshScheduler.WORK_KIND_REPAIR,
+                    AutoRefreshScheduler.KEY_TRIGGER_SOURCE to AutoRefreshScheduler.TRIGGER_REPAIR,
                 )
             )
             .build()
@@ -123,7 +131,7 @@ class StockUpdateWorker(
     }
 
     companion object {
-        private const val REPAIR_WORK_NAME = "stock_canonical_repair_retry_v4"
+        private const val REPAIR_WORK_NAME = "stock_canonical_repair_retry_v5"
         private const val REPAIR_RETRY_MINUTES = 5L
         private val marketSyncMutex = Mutex()
 

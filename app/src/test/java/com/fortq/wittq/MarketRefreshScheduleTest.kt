@@ -53,6 +53,25 @@ class MarketRefreshScheduleTest {
     }
 
     @Test
+    fun exactSlotBoundariesAdvanceWithoutDrift() {
+        assertEquals(
+            "2026-09-22T09:45-04:00[America/New_York]",
+            MarketRefreshSchedule.nextSlot(ny("2026-09-22T09:30:00-04:00")).toString(),
+        )
+        assertEquals(
+            "2026-09-22T10:00-04:00[America/New_York]",
+            MarketRefreshSchedule.nextSlot(ny("2026-09-22T09:45:01-04:00")).toString(),
+        )
+        assertEquals(
+            "2026-09-22T16:40-04:00[America/New_York]",
+            MarketRefreshSchedule.nextSlot(
+                ny("2026-09-22T16:20:00-04:00"),
+                closeFinalized = false,
+            ).toString(),
+        )
+    }
+
+    @Test
     fun afterRetryAndWeekendSleepUntilNextWeekdayOpen() {
         assertEquals(
             "2026-09-23T09:30-04:00[America/New_York]",
